@@ -1,0 +1,1 @@
+terraform import onpager_notification_template.example alert_direct/telegram/en

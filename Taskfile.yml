@@ -1,0 +1,171 @@
+version: '3'
+
+vars:
+  VERSION: dev
+  PKG: ./...
+  TEST: .
+
+env:
+  GOCACHE: '{{.ROOT_DIR}}/.harness/go-build'
+  GOMODCACHE: '{{.ROOT_DIR}}/.harness/go-mod'
+  GOTOOLCHAIN: local
+  CHECKPOINT_DISABLE: '1'
+  TF_IN_AUTOMATION: '1'
+  GO_TEST_PACKAGE: '{{.PKG}}'
+  GO_TEST_PATTERN: '{{.TEST}}'
+  BUILD_VERSION: '{{.VERSION}}'
+
+tasks:
+  default:
+    desc: List development tasks
+    cmds:
+      - task --list
+
+  doctor:
+    desc: Check required development tools
+    cmds:
+      - bash scripts/harness/doctor.sh
+
+  setup:
+    desc: Check tools and download pinned Go dependencies
+    cmds:
+      - task: doctor
+      - task: deps:download
+
+  deps:download:
+    desc: Download dependencies using the configured Go proxy
+    cmds:
+      - go mod download
+      - go -C tools mod download
+
+  deps:tidy:
+    desc: Reconcile go.mod and go.sum after dependency changes
+    cmds:
+      - go mod tidy
+      - go -C tools mod tidy
+
+  deps:check:
+    desc: Check module drift and cached dependency integrity without modifying files
+    cmds:
+      - go mod tidy -diff
+      - go mod verify
+      - go -C tools mod tidy -diff
+      - go -C tools mod verify
+
+  fmt:
+    desc: Format Go sources and Terraform examples
+    cmds:
+      - bash scripts/harness/go-format.sh write
+      - terraform fmt -recursive examples
+
+  fmt:check:
+    desc: Check Go and Terraform formatting without modifying files
+    cmds:
+      - bash scripts/harness/go-format.sh check
+      - terraform fmt -check -recursive examples
+
+  vet:
+    desc: Run Go static analysis
+    cmds:
+      - go vet ./...
+
+  check:
+    desc: Check publication inputs, formatting, modules and static analysis
+    cmds:
+      - task: repository:check
+      - task: fmt:check
+      - task: deps:check
+      - task: vet
+
+  test:
+    desc: Run unit tests (optional PKG=./internal/client TEST=TestDo)
+    cmds:
+      - TF_ACC=0 go test -count=1 -timeout=2m -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
+
+  test:race:
+    desc: Run unit tests with the race detector
+    cmds:
+      - TF_ACC=0 go test -race -count=1 -timeout=3m -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
+
+  test:cover:
+    desc: Run unit tests and write .harness/coverage.out
+    cmds:
+      - mkdir -p .harness
+      - TF_ACC=0 go test -count=1 -timeout=2m -covermode=atomic -coverprofile=.harness/coverage.out ./...
+      - go tool cover -func=.harness/coverage.out
+
+  test:acc:
+    desc: Run opt-in Terraform lifecycle tests against the configured local OnPager API
+    cmds:
+      - python3 scripts/harness/acceptance.py
+
+  build:
+    desc: Build bin/terraform-provider-onpager (optional VERSION=0.0.1)
+    cmds:
+      - mkdir -p bin
+      - go build -buildvcs=false -trimpath -ldflags "-X=main.version=$BUILD_VERSION" -o bin/terraform-provider-onpager .
+
+  dev:
+    desc: Build the provider and create a project-local Terraform development override
+    cmds:
+      - task: build
+      - bash scripts/harness/dev-config.sh
+
+  smoke:
+    desc: Build and load the actual plugin with Terraform CLI, then validate the example
+    cmds:
+      - task: dev
+      - bash scripts/harness/terraform-smoke.sh
+
+  docs:
+    desc: Generate and validate Registry documentation from schema, templates and examples
+    cmds:
+      - task: doctor
+      - task: dev
+      - python3 scripts/harness/docs.py generate
+
+  docs:check:
+    desc: Check generated documentation and examples without modifying source or docs
+    cmds:
+      - task: doctor
+      - task: test:harness
+      - task: dev
+      - python3 scripts/harness/docs.py check
+
+  test:harness:
+    desc: Test documentation, publication boundaries and release eligibility
+    cmds:
+      - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/harness -v
+
+  ci:lint:
+    desc: Validate GitHub Actions workflows with pinned actionlint v1.7.12
+    cmds:
+      - go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+  repository:check:
+    desc: Check Git publication inputs and public documentation links without staging files
+    cmds:
+      - PYTHONDONTWRITEBYTECODE=1 python3 scripts/harness/repository.py check
+
+  release:check:
+    desc: Validate .goreleaser.yml (requires GoReleaser v2.19.0)
+    cmds:
+      - goreleaser check
+
+  release:snapshot:
+    desc: Build unsigned release archives in dist/ without publishing (requires GoReleaser v2.19.0)
+    cmds:
+      - goreleaser release --snapshot --clean --skip=sign
+
+  verify:
+    desc: Run checks, race tests, build and the Terraform CLI smoke check
+    cmds:
+      - task: check
+      - task: test:race
+      - task: smoke
+      - task: docs:check
+
+  clean:
+    desc: Remove only generated bin/ and .harness/ outputs, including local caches
+    cmds:
+      - bash scripts/harness/clean.sh

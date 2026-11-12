@@ -1,0 +1,1 @@
+terraform import onpager_enrichment_rules.example tenant

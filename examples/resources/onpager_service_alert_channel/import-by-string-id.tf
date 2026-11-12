@@ -1,0 +1,4 @@
+import {
+  to = onpager_service_alert_channel.example
+  id = "22222222-2222-4222-8222-222222222222/55555555-5555-4555-8555-555555555555"
+}

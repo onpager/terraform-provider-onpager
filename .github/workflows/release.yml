@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_COMMIT: ${{ github.sha }}
+  RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release version and source commit
+        run: python3 scripts/harness/release-preflight.py
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Signed draft release
+    needs: [preflight, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck release version and source commit before signing
+        run: python3 scripts/harness/release-preflight.py
+      - name: Check signing configuration
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+          EXPECTED_GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
+        run: |
+          if [[ -z "$GPG_PRIVATE_KEY" || -z "$PASSPHRASE" ]]; then
+            echo '::error::Set GPG_PRIVATE_KEY and PASSPHRASE in the release environment secrets.'
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_GPG_FINGERPRINT" =~ ^[[:xdigit:]]{40}$ ]]; then
+            echo '::error::Set the full 40-character RSA primary-key fingerprint in the release environment variable GPG_FINGERPRINT.'
+            exit 1
+          fi
+      - uses: ./.github/actions/setup
+      - name: Import release-signing key
+        id: gpg
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+      - name: Verify imported release-signing identity
+        env:
+          IMPORTED_GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
+          EXPECTED_GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
+        run: |
+          if [[ "${IMPORTED_GPG_FINGERPRINT^^}" != "${EXPECTED_GPG_FINGERPRINT^^}" ]]; then
+            echo '::error::The imported key does not match the registered release-signing fingerprint.'
+            exit 1
+          fi
+      - name: Build, sign and upload draft release
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.19.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
+          GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
+      - name: Verify generated checksum signature locally
+        run: gpg --batch --verify dist/*_SHA256SUMS.sig dist/*_SHA256SUMS
