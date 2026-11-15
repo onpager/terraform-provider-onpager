@@ -71,60 +71,95 @@ func validateBotSecretKeys(m, mode string, keys []string) error {
 // ValidateBotInput validates public replacements and named changes without
 // requiring knowledge of retained secret values. The API validates their result.
 func ValidateBotInput(m string, in BotInput) error {
-	invalid := errors.New("invalid bot configuration; check messenger fields, byte limits, scopes, pacing, team grants and secret actions")
-	if botScopeKind(m) == "" || in.DisplayName == "" || strings.TrimSpace(in.DisplayName) != in.DisplayName || !botText(in.DisplayName, 200) || !botText(in.PublicHandle, 200) || !botLink(in.EnrollmentURL) || m == "telegram" && in.EnrollmentURL == "" || (in.Visibility != "global" && in.Visibility != "team") || len(in.TeamIDs) > 1000 || in.Visibility == "global" && len(in.TeamIDs) > 0 {
-		return invalid
+	if botScopeKind(m) == "" {
+		return errors.New("messenger must be telegram, pachca, slack, mattermost or discord")
+	}
+	if in.DisplayName == "" || strings.TrimSpace(in.DisplayName) != in.DisplayName || !botText(in.DisplayName, 200) {
+		return errors.New("display_name must be nonempty valid UTF-8, at most 200 bytes, without control characters or surrounding whitespace")
+	}
+	if !botText(in.PublicHandle, 200) {
+		return errors.New("public_handle must be valid UTF-8, at most 200 bytes, without control characters")
+	}
+	if m == "telegram" && in.EnrollmentURL == "" {
+		return errors.New("enrollment_url is required for Telegram, including disabled bots")
+	}
+	if !botLink(in.EnrollmentURL) {
+		return errors.New("enrollment_url must be an HTTPS URL without credentials, control characters or surrounding whitespace, at most 4096 UTF-8 bytes")
+	}
+	if in.Visibility != "global" && in.Visibility != "team" {
+		return errors.New("visibility must be global or team")
+	}
+	if len(in.TeamIDs) > 1000 {
+		return errors.New("team_ids must contain at most 1000 team UUIDs")
+	}
+	if in.Visibility == "global" && len(in.TeamIDs) > 0 {
+		return errors.New("team_ids must be empty when visibility is global")
 	}
 	for _, id := range in.TeamIDs {
 		if !validResponseID(id) {
-			return invalid
+			return errors.New("team_ids must contain canonical nonzero lowercase team UUIDs")
 		}
 	}
 	p := in.Pacing
-	if p.Requests < 1 || p.Requests > 2147483647 || p.WindowMS < 1 || p.WindowMS > 86400000 || p.SearchRequests < 0 || p.SearchRequests > p.Requests/10 {
-		return invalid
+	if p.Requests < 1 || p.Requests > 2147483647 {
+		return errors.New("pacing.requests must be between 1 and 2147483647")
+	}
+	if p.WindowMS < 1 || p.WindowMS > 86400000 {
+		return errors.New("pacing.window_ms must be between 1 and 86400000 milliseconds")
+	}
+	if p.SearchRequests < 0 || p.SearchRequests > p.Requests/10 {
+		return errors.New("pacing.search_requests must be between 0 and floor(pacing.requests/10)")
 	}
 	cfg := in.Configuration
 	if m == "telegram" || m == "pachca" {
 		if cfg.Mode != "" && cfg.Mode != "polling" && cfg.Mode != "webhook" {
-			return invalid
+			return errors.New("configuration.mode must be polling or webhook for Telegram/Pachca")
 		}
 	} else if cfg.Mode != "" {
-		return invalid
+		return errors.New("configuration.mode must be omitted or empty for Slack, Mattermost and Discord")
 	}
 	if m == "mattermost" {
 		if !botProviderURL(cfg.BaseURL, false) || strings.HasSuffix(cfg.BaseURL, "/") {
-			return invalid
+			return errors.New("configuration.base_url must be a canonical HTTP(S) URL without credentials, query, fragment or trailing slash for Mattermost")
 		}
 	} else if cfg.BaseURL != "" {
-		return invalid
+		return errors.New("configuration.base_url must be omitted or empty except for Mattermost")
 	}
-	if m != "telegram" && len(cfg.AllowedUpdates) > 0 || len(cfg.AllowedUpdates) > 32 {
-		return invalid
+	if m != "telegram" && len(cfg.AllowedUpdates) > 0 {
+		return errors.New("configuration.allowed_updates must be omitted or empty except for Telegram")
+	}
+	if len(cfg.AllowedUpdates) > 32 {
+		return errors.New("configuration.allowed_updates must contain at most 32 update names")
 	}
 	for _, update := range cfg.AllowedUpdates {
 		if !botUpdatePattern.MatchString(update) {
-			return invalid
+			return errors.New("configuration.allowed_updates names must match ^[a-z][a-z0-9_]{0,63}$")
 		}
 	}
 	for key, change := range in.Secrets {
 		if !botSecretAllowed(m, key) {
-			return invalid
+			return errors.New("secrets contains a key unsupported by the configured messenger; use token/proxy_url, Slack app_token, Mattermost action_secret or Telegram/Pachca webhook_secret")
 		}
+		// Only supported, fixed key names enter diagnostics; never include values
+		// or an arbitrary user-supplied map key, which may itself contain a secret.
+		field := "secrets." + key
 		switch change.Action {
 		case "keep", "delete":
 			if change.Action == "delete" && (key == "token" || key == "app_token" || key == "action_secret" || key == "webhook_secret" && cfg.Mode == "webhook") {
-				return invalid
+				return errors.New(field + ".action cannot be delete while this secret is required by the configured messenger and transport")
 			}
 			if change.Value != "" {
-				return invalid
+				return errors.New(field + ".value must be omitted for keep/delete actions")
 			}
 		case "replace":
-			if change.Value == "" || strings.TrimSpace(change.Value) == "" || !botText(change.Value, 16384) || key == "proxy_url" && !botProviderURL(change.Value, true) {
-				return invalid
+			if change.Value == "" || strings.TrimSpace(change.Value) == "" || !botText(change.Value, 16384) {
+				return errors.New(field + ".value must be nonempty valid UTF-8, at most 16384 bytes, without control characters or whitespace-only text when action is replace")
+			}
+			if key == "proxy_url" && !botProviderURL(change.Value, true) {
+				return errors.New(field + ".value must be an HTTP(S) proxy URL without query or fragment")
 			}
 		default:
-			return invalid
+			return errors.New(field + ".action must be keep, replace or delete")
 		}
 	}
 	return nil

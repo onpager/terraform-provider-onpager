@@ -179,6 +179,52 @@ func TestBotValidationAllMessengersAndSecretActions(t *testing.T) {
 	}
 }
 
+func TestBotValidationIdentifiesInvalidFieldWithoutValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, field string
+		change      func(*client.BotInput)
+	}{
+		{"missing link", "enrollment_url", func(v *client.BotInput) { v.EnrollmentURL = "" }},
+		{"invalid link", "enrollment_url", func(v *client.BotInput) { v.EnrollmentURL = "http://invalid-link-marker" }},
+		{"name", "display_name", func(v *client.BotInput) { v.DisplayName = " invalid-name-marker" }},
+		{"handle", "public_handle", func(v *client.BotInput) { v.PublicHandle = strings.Repeat("private-handle-marker", 20) }},
+		{"visibility", "visibility", func(v *client.BotInput) { v.Visibility = "invalid-visibility-marker" }},
+		{"global grants", "team_ids", func(v *client.BotInput) { v.TeamIDs = []string{teamID} }},
+		{"invalid team", "team_ids", func(v *client.BotInput) { v.Visibility = "team"; v.TeamIDs = []string{"private-team-marker"} }},
+		{"request count", "pacing.requests", func(v *client.BotInput) { v.Pacing.Requests = 0 }},
+		{"window", "pacing.window_ms", func(v *client.BotInput) { v.Pacing.WindowMS = 0 }},
+		{"search count", "pacing.search_requests", func(v *client.BotInput) { v.Pacing.SearchRequests = 2 }},
+		{"transport", "configuration.mode", func(v *client.BotInput) { v.Configuration.Mode = "invalid-mode-marker" }},
+		{"foreign URL", "configuration.base_url", func(v *client.BotInput) { v.Configuration.BaseURL = "https://private-host-marker" }},
+		{"update name", "configuration.allowed_updates", func(v *client.BotInput) { v.Configuration.AllowedUpdates = []string{"invalid-update-marker"} }},
+		{"unknown secret", "secrets", func(v *client.BotInput) { v.Secrets["private-key-marker"] = client.BotSecretChange{Action: "delete"} }},
+		{"secret action", "secrets.token.action", func(v *client.BotInput) { v.Secrets["token"] = client.BotSecretChange{Action: "invalid-action-marker"} }},
+		{"required secret deletion", "secrets.token.action", func(v *client.BotInput) { v.Secrets["token"] = client.BotSecretChange{Action: "delete"} }},
+		{"unexpected secret value", "secrets.token.value", func(v *client.BotInput) {
+			v.Secrets["token"] = client.BotSecretChange{Action: "keep", Value: "private-value-marker"}
+		}},
+		{"invalid secret value", "secrets.token.value", func(v *client.BotInput) {
+			v.Secrets["token"] = client.BotSecretChange{Action: "replace", Value: "private-value-marker\n"}
+		}},
+		{"invalid proxy", "secrets.proxy_url.value", func(v *client.BotInput) {
+			v.Secrets["proxy_url"] = client.BotSecretChange{Action: "replace", Value: "https://private-proxy-marker?secret=private-value-marker"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := botInput()
+			tc.change(&in)
+			c := fixtureClient(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid configuration made an HTTP request") })
+			_, err := c.UpdateBot(t.Context(), teamID, "telegram", in)
+			if err == nil || !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("expected diagnostic naming %s, got %v", tc.field, err)
+			}
+			if strings.Contains(err.Error(), "-marker") || strings.Contains(err.Error(), "synthetic-secret") {
+				t.Fatalf("diagnostic disclosed an input value: %v", err)
+			}
+		})
+	}
+}
+
 func TestBotRejectsNormalizingURLsAndRequiredSecretDeletionBeforeHTTP(t *testing.T) {
 	for name, change := range map[string]func(*client.BotCreateInput){
 		"normalizing enrollment": func(v *client.BotCreateInput) { v.EnrollmentURL = "https://chat.invalid/a b" },

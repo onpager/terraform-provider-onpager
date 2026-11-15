@@ -187,6 +187,33 @@ func TestBotUnknownAndInvalidApplyNeverRequests(t *testing.T) {
 	}
 }
 
+func TestTelegramPollingValidationAcceptsSavedWebhookSecretAndNamesInvalidValue(t *testing.T) {
+	for _, value := range []string{"synthetic-webhook-secret", "synthetic-webhook-secret\n"} {
+		t.Run(fmt.Sprint(strings.Contains(value, "\n")), func(t *testing.T) {
+			r := onpager.NewBotResource()
+			s := configuredResource(t, r, func(http.ResponseWriter, *http.Request) { t.Fatal("configuration validation made an HTTP request") })
+			values := botValues()
+			values["addressing_scope_id"] = types.StringNull()
+			values["pacing"] = types.ObjectNull(botPaceTypes)
+			secrets := values["secrets"].(types.Map).Elements()
+			secrets["webhook_secret"] = types.ObjectValueMust(botSecTypes, map[string]attr.Value{"action": types.StringValue("replace"), "value": types.StringValue(value)})
+			values["secrets"] = types.MapValueMust(types.ObjectType{AttrTypes: botSecTypes}, secrets)
+			config := valueState(t, s, values)
+			var resp resource.ValidateConfigResponse
+			r.(resource.ResourceWithValidateConfig).ValidateConfig(t.Context(), resource.ValidateConfigRequest{Config: tfsdk.Config{Schema: s, Raw: config.Raw}}, &resp)
+			if !strings.Contains(value, "\n") {
+				if resp.Diagnostics.HasError() {
+					t.Fatalf("valid polling configuration was rejected: %v", resp.Diagnostics)
+				}
+				return
+			}
+			if len(resp.Diagnostics) != 1 || !strings.Contains(resp.Diagnostics[0].Detail(), "secrets.webhook_secret.value") || strings.Contains(resp.Diagnostics[0].Detail(), "synthetic-webhook-secret") {
+				t.Fatalf("missing actionable, redacted configuration diagnostic: %v", resp.Diagnostics)
+			}
+		})
+	}
+}
+
 func TestBotConfigurationRejectsProviderMismatchAndNormalizingEmptyDefaults(t *testing.T) {
 	for name, change := range map[string]func(map[string]attr.Value){
 		"empty mode": func(v map[string]attr.Value) {

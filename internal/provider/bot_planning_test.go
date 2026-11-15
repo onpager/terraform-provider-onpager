@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/onpager/terraform-provider-onpager/internal/client"
 )
@@ -66,9 +67,6 @@ func TestBotTerraformFiveMessengersDefaultsImportDriftAndSecrets(t *testing.T) {
 				w.WriteHeader(422)
 				return
 			}
-			if in.Enabled {
-				t.Error("enabled fixture could start runtime")
-			}
 			creates++
 			writes++
 			id = fmt.Sprintf("%08x-1111-4111-8111-111111111111", creates)
@@ -99,9 +97,6 @@ func TestBotTerraformFiveMessengersDefaultsImportDriftAndSecrets(t *testing.T) {
 			if json.NewDecoder(q.Body).Decode(&in) != nil {
 				w.WriteHeader(422)
 				return
-			}
-			if in.Enabled {
-				t.Error("enabled fixture")
 			}
 			writes++
 			for _, ch := range in.Secrets {
@@ -157,6 +152,69 @@ provider "onpager" {
 		v.DisplayName = "External drift"
 		records[telegramID] = v
 	}, Config: config("-updated"), Check: resource.TestCheckResourceAttr("onpager_bot.telegram", "display_name", "Passive-telegram-updated")}, resource.TestStep{Config: config("-updated"), PlanOnly: true})
+	// Runtime observations must never gate configuration or credential repairs.
+	// This server only stores JSON; enabled fixtures cannot contact a messenger.
+	activeConfig := func(state string) string {
+		c := strings.ReplaceAll(config("-"+state), "enabled = false", "enabled = true")
+		return strings.ReplaceAll(c, "tfacc-passive-synthetic-token", "tfacc-repaired-synthetic-token-"+state)
+	}
+	for _, state := range []string{"starting", "reconfiguring", "error"} {
+		var beforeWrites, beforeReplacements int
+		steps = append(steps, resource.TestStep{
+			PreConfig: func() {
+				mu.Lock()
+				defer mu.Unlock()
+				beforeWrites, beforeReplacements = writes, replacements
+				for id, v := range records {
+					v.Runtime = client.BotRuntime{State: state}
+					if state == "error" {
+						v.Runtime.ErrorCode = "provider_unavailable"
+					}
+					records[id] = v
+				}
+			},
+			Config: activeConfig(state),
+			Check: func(s *terraform.State) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if writes-beforeWrites != 5 || replacements-beforeReplacements != 5 {
+					return fmt.Errorf("runtime %s blocked five bot repairs: writes=%d replacements=%d", state, writes-beforeWrites, replacements-beforeReplacements)
+				}
+				for _, m := range []string{"telegram", "pachca", "slack", "mattermost", "discord"} {
+					if err := resource.TestCheckResourceAttr("onpager_bot."+m, "runtime.state", state)(s); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		})
+	}
+	var beforeRuntimeWrites int
+	runtimePlanChecks := []plancheck.PlanCheck{}
+	for _, m := range []string{"telegram", "pachca", "slack", "mattermost", "discord"} {
+		runtimePlanChecks = append(runtimePlanChecks, plancheck.ExpectResourceAction("onpager_bot."+m, plancheck.ResourceActionNoop))
+	}
+	steps = append(steps, resource.TestStep{
+		PreConfig: func() {
+			mu.Lock()
+			defer mu.Unlock()
+			beforeRuntimeWrites = writes
+			for id, v := range records {
+				v.Runtime = client.BotRuntime{State: "running", ObservedAt: "2026-11-16T09:00:00Z", LastProbeAt: "2026-11-16T09:00:00Z"}
+				records[id] = v
+			}
+		},
+		Config:           activeConfig("error"),
+		ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: runtimePlanChecks},
+		Check: func(*terraform.State) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if writes != beforeRuntimeWrites {
+				return fmt.Errorf("runtime-only change caused %d bot mutations", writes-beforeRuntimeWrites)
+			}
+			return nil
+		},
+	})
 	resource.UnitTest(t, resource.TestCase{ProtoV6ProviderFactories: routingAccFactories(), CheckDestroy: func(*terraform.State) error {
 		mu.Lock()
 		defer mu.Unlock()
