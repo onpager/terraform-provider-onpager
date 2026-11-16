@@ -113,7 +113,7 @@ func (*OnPagerProvider) Resources(context.Context) []func() resource.Resource {
 		NewEscalationRuleResource, NewTeamAlertChannelResource, NewServiceAlertChannelResource,
 		NewTeamOncallChannelResource, NewWorkCalendarResource, NewWorkCalendarEntryResource,
 		NewScheduleResource, NewScheduleRotationResource, NewScheduleOverrideResource,
-		NewServiceAccountResource, NewRBACRoleResource,
+		NewServiceAccountResource, NewRBACRoleResource, NewUserResource,
 		NewGroupResource, NewGroupMembershipResource, NewOIDCGroupMappingResource,
 		NewNotificationTemplateResource,
 		NewRoleAssignmentResource, NewScheduleHandoverResource,
@@ -123,6 +123,9 @@ func (*OnPagerProvider) Resources(context.Context) []func() resource.Resource {
 		NewEnrichmentDatasetResource, NewEnrichmentRulesResource,
 		NewBotResource, NewVoiceProviderResource,
 		NewTeamRoleDefaultsResource,
+		NewRoutingSettingsResource,
+		NewTeamResponderPolicyResource,
+		NewTeamResponderGuardPolicyResource,
 	}
 }
 

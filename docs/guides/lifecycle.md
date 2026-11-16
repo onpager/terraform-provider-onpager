@@ -22,8 +22,12 @@ outside Terraform remain untouched by parent settings updates.
 | Channel catalog bindings and calendar entries | Delete only the managed binding/entry |
 | Integrations | Hide and revoke credentials, retaining alerts and historical links |
 | Service accounts | Deactivate and revoke all keys; retain identity and role assignments |
+| Local users | Deactivate, revoke sessions/PATs and complete incident responsibilities; retain identity, history and reserved login/email |
 | Role assignments | Revoke only the explicit binding; retain audit history |
 | Team role defaults | Clear both tenant-wide member/lead role sets with the saved policy revision |
+| Tenant routing settings | Clear the default route; retain the target and leave unmatched alerts unassigned |
+| Team responder policies | Retire only the exact importance slot; preserve history and existing calls |
+| Team responder guard policies | Reset the explicit team override to the backend default; preserve history |
 | Schedule handover | Save disabled settings with an empty channel set, including under inactive owners |
 | Outgoing webhooks | Disable the definition and retain historical references |
 | Bots and voice providers | Retire the connection and erase its credentials; retained channel/contact dependencies block retirement |
@@ -54,6 +58,15 @@ Service accounts do not receive roles or tokens implicitly. Reactivation never
 restores revoked keys. Manual group membership and OIDC-derived membership are
 independent sources; deleting the manual source does not remove derived access.
 
+Local users accept a write-only initial password only at creation. Password and
+initial sign-in-policy changes are ignored after creation; neither is saved in
+state or recovered by import. User metadata PATCH is unversioned. Destroy keeps
+the identity and reserved normalized login/email; import the UUID to adopt and
+reactivate it. Creating an inactive user first creates an active identity, then
+deactivates it. User reactivation never restores revoked sessions/PATs or completed
+incident responsibilities. OIDC-only and protected bootstrap identities are
+excluded from the local-user resource.
+
 Role assignment UUIDs stay fixed when their role, recipient or target changes.
 Refresh accepts valid tuple changes made outside Terraform; apply reconciles the
 configured values with an atomic expected-tuple comparison. Group-derived grants
@@ -83,6 +96,22 @@ configured but inactive. The provider never removes contacts or catalog bindings
 implicitly to permit retirement.
 
 ## Conflicts and time
+
+Tenant routing writes replace the full nullable recipient without If-Match;
+concurrent saves apply in commit order. An empty route remains owned settings.
+Create refuses nonempty unowned settings; import the literal ID `tenant` to
+adopt an existing route. Destroy clears only the route, never restores a saved
+UI snapshot and never modifies the target.
+
+Responder policy and guard revisions are observed publication counters, not
+compare-and-swap inputs. Create requires an unowned slot/override. Responder
+policies own one exact team/importance slot, with no fallback between importance
+values. A chain policy snapshots the current chain; changing that chain does not
+rewrite the snapshot automatically. Bind `publication_trigger` to the chain's
+etag to explicitly republish when its definition changes. This Terraform-only
+trigger provides no API concurrency protection. Guard reset delegates the
+default value to the backend. Successful default/empty policy reads confirm
+logical absence; HTTP failures retain state. Neither resource invokes a call.
 
 Versioned resources use their own observed revision/ETag. A conflict requires a
 fresh plan; the provider does not replace the expected revision automatically.

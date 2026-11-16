@@ -60,9 +60,20 @@ configuration, Vault integration and timezone semantics.
 - [Data source reference](docs/data-sources)
 - [Examples](examples)
 
-The provider includes 34 resources and seven data sources. Reference schemas are
+The provider includes 38 resources and seven data sources. Reference schemas are
 built from the provider with `tfplugindocs`; templates contain lifecycle,
 permissions and import contracts.
+
+[Local users](docs/resources/user.md) support creation with a write-only initial
+password, metadata updates, activation and UUID import. Destroy deactivates the
+user and revokes sessions/PATs; identity and history are retained.
+
+[Routing settings](docs/resources/routing_settings.md) own the tenant's fallback
+recipient. [Team responder policies](docs/resources/team_responder_policy.md)
+publish exact-importance fanout or chain snapshots, while
+[guard policies](docs/resources/team_responder_guard_policy.md) manage explicit
+per-team pending-request limits. Their destroy operations clear only the owned
+setting or override.
 
 ## Development
 

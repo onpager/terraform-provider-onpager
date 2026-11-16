@@ -56,6 +56,11 @@ Unit tests, schema validation and documentation generation do not require
 OnPager credentials or a running backend. Test implementations use HTTP fixtures
 and the installed Terraform CLI; no Terraform binary is downloaded by the harness.
 
+Unit, race and coverage tasks default to a five-minute timeout per Go package,
+including the real Terraform CLI fixture scenarios. Use `TEST_TIMEOUT` to
+override this package budget, for example `task test TEST_TIMEOUT=8m`. Request
+timeouts and individual test assertions remain independent of this budget.
+
 ## Repository structure
 
 | Path | Contents |
@@ -331,6 +336,23 @@ send, preview or direct database operation is part of these tests.
 
 Additional fixtures and opt-in coverage:
 
+- Team responder-policy and guard-policy acceptance uses fresh test-owned teams,
+  explicit read/publish grants, an existing active user fixture and an owned
+  user/wait escalation chain. It covers both importance slots, source-chain
+  republication, import, drift and reset without creating responder calls or
+  delivery. Cleanup does not change the existing user's profile or credentials.
+- Tenant routing mutation requires
+  `ONPAGER_ACC_ROUTING_SETTINGS_DISPOSABLE=1` and an initially empty disposable
+  default route. This test never restores a foreign or previous UI snapshot.
+  Without the explicit fixture it is skipped; local fixtures still cover the
+  route's lifecycle, ownership guard, import, drift and error-state retention.
+- Local-user lifecycle tests require `ONPAGER_ACC_LOCAL_USERS_DISPOSABLE=1` and
+  tenant `users.create`, `users.read`, `users.update`, `users.deactivate` and
+  `users.reactivate` grants. They create only unique `tfacc-*` local users with
+  synthetic initial passwords, never log in or send notifications, and deactivate
+  their own identities on cleanup. These identities and their reserved login/email
+  remain after the test; physical deletion is unsupported. No existing user
+  profile or password is changed. Without the explicit opt-in this case is skipped.
 - Bot and voice lifecycle tests create fresh disabled connections with synthetic
   credentials. Control must have the corresponding credential keyrings. All five
   messengers and Telegram/Pachca webhook modes are tested without requiring

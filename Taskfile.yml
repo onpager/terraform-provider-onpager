@@ -4,6 +4,7 @@ vars:
   VERSION: dev
   PKG: ./...
   TEST: .
+  TEST_TIMEOUT: 5m
 
 env:
   GOCACHE: '{{.ROOT_DIR}}/.harness/go-build'
@@ -13,6 +14,7 @@ env:
   TF_IN_AUTOMATION: '1'
   GO_TEST_PACKAGE: '{{.PKG}}'
   GO_TEST_PATTERN: '{{.TEST}}'
+  ONPAGER_GO_TEST_TIMEOUT: '{{.TEST_TIMEOUT}}'
   BUILD_VERSION: '{{.VERSION}}'
 
 tasks:
@@ -80,18 +82,18 @@ tasks:
   test:
     desc: Run unit tests (optional PKG=./internal/client TEST=TestDo)
     cmds:
-      - TF_ACC=0 go test -count=1 -timeout=2m -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
+      - TF_ACC=0 go test -count=1 -timeout="$ONPAGER_GO_TEST_TIMEOUT" -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
 
   test:race:
     desc: Run unit tests with the race detector
     cmds:
-      - TF_ACC=0 go test -race -count=1 -timeout=3m -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
+      - TF_ACC=0 go test -race -count=1 -timeout="$ONPAGER_GO_TEST_TIMEOUT" -run "$GO_TEST_PATTERN" "$GO_TEST_PACKAGE"
 
   test:cover:
     desc: Run unit tests and write .harness/coverage.out
     cmds:
       - mkdir -p .harness
-      - TF_ACC=0 go test -count=1 -timeout=2m -covermode=atomic -coverprofile=.harness/coverage.out ./...
+      - TF_ACC=0 go test -count=1 -timeout="$ONPAGER_GO_TEST_TIMEOUT" -covermode=atomic -coverprofile=.harness/coverage.out ./...
       - go tool cover -func=.harness/coverage.out
 
   test:acc:

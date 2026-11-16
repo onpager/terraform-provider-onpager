@@ -9,8 +9,13 @@ description: |-
 
 The OnPager provider manages configuration through the Control API. It supports
 teams, services, memberships, integrations, routing, escalation, delivery catalog
-bindings, schedules, work calendars, identity and access configuration,
+bindings, schedules, work calendars, local users, identity and access configuration,
 notification templates, outgoing webhooks, suppression and enrichment.
+
+Tenant routing settings manage the default unmatched-alert recipient. Team
+responder policies publish exact-importance fanout or chain snapshots; responder
+guard policies manage explicit pending-request limits. Configuration does not
+create responder calls or send notifications.
 
 Data sources read existing users, teams, services, roles, groups and known delivery
 channels. Required permissions are listed on each reference page.
