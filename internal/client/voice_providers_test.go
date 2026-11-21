@@ -86,7 +86,7 @@ func TestVoiceProviderClientUnversionedDirectLifecycle(t *testing.T) {
 }
 
 func TestVoiceProviderClientRejectsMalformedViewsAndPreservesKnownCommittedIdentity(t *testing.T) {
-	for _, mode := range []string{"missing", "null", "configuration", "runtime", "foreign_id", "kind", "teams", "secrets", "empty_secrets", "timestamp", "json", "enabled_type", "configuration_type"} {
+	for _, mode := range []string{"missing", "null", "configuration", "runtime", "invalid_base_url", "foreign_id", "kind", "teams", "secrets", "empty_secrets", "timestamp", "json", "enabled_type", "configuration_type"} {
 		t.Run(mode, func(t *testing.T) {
 			c := voiceClient(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == "POST" {
@@ -103,6 +103,8 @@ func TestVoiceProviderClientRejectsMalformedViewsAndPreservesKnownCommittedIdent
 					body["secret_keys"] = nil
 				case "configuration":
 					delete(body["configuration"].(map[string]any), "max_text_runes")
+				case "invalid_base_url":
+					body["configuration"].(map[string]any)["base_url"] = "https://user@mock.invalid"
 				case "runtime":
 					body["runtime"] = map[string]any{}
 				case "foreign_id":

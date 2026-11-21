@@ -123,6 +123,7 @@ func (*OnPagerProvider) Resources(context.Context) []func() resource.Resource {
 		NewEnrichmentDatasetResource, NewEnrichmentRulesResource,
 		NewBotResource, NewVoiceProviderResource,
 		NewTeamRoleDefaultsResource,
+		NewUserNotificationDefaultsResource,
 		NewRoutingSettingsResource,
 		NewTeamResponderPolicyResource,
 		NewTeamResponderGuardPolicyResource,

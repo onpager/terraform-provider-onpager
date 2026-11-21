@@ -1,0 +1,1 @@
+terraform import onpager_user_notification_defaults.example tenant

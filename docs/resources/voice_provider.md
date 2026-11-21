@@ -25,6 +25,7 @@ resource "onpager_voice_provider" "example" {
   enabled      = false
 
   configuration = {
+    base_url                 = "http://mock:8080/manager/cabapi_external/api/v1/phones"
     call_campaign_id         = "100001"
     verification_campaign_id = "100002"
     max_text_runes           = 500
@@ -74,6 +75,7 @@ Required:
 
 Optional:
 
+- `base_url` (String) Full HTTP(S) base URL of the Zvonok V1 phones API for this connection, up to 16384 bytes, without credentials, query or fragment. Omission, null or an empty string selects `https://zvonok.com/manager/cabapi_external/api/v1/phones`. Changing or clearing the address updates the connection in place and requires `voice_provider_credentials.replace`.
 - `max_text_runes` (Number) Maximum rendered Unicode rune count, from 1 through 500 inclusive. Defaults to `500`; explicit zero is invalid.
 
 
@@ -121,6 +123,12 @@ and a separate tellcode campaign for phone verification. Campaign identifiers
 are 1–128 UTF-8 bytes. The display name is limited to 200 UTF-8 bytes. None may
 contain control characters or surrounding whitespace. The rendered text limit
 defaults to 500 Unicode runes and must be from 1 through 500; zero is invalid.
+
+Set `configuration.base_url` to the full phones API prefix reachable from the
+Voice service. Voice appends `/call/`, `/tellcode/` or `/call_by_id/` when
+contacting the endpoint. Clearing the override restores the standard Zvonok API.
+The provider UUID, stored public key and inbound callback URL are preserved.
+Pending calls are correlated with the endpoint that issued their call IDs.
 
 Enabled defaults to true. Explicit false creates the complete resource disabled
 atomically. Saving and reading configuration performs no Zvonok request, account
@@ -174,10 +182,11 @@ rotation preserves its stable identity. Terraform does not contact that URL.
 
 Requires tenant-level `voice_providers.read`, `voice_providers.create`,
 `voice_providers.update` and `voice_providers.delete`, including for explicitly
-granted native service accounts. Creation and requested credential replacements
-additionally require `voice_provider_credentials.replace`. Metadata and public
-configuration updates preserve a saved key without that separate credential
-grant. Account ownership and token issuance do not grant business access.
+granted native service accounts. Creating a connection, replacing its public
+key, or changing or clearing its API URL also requires
+`voice_provider_credentials.replace`. Updating campaign IDs or metadata with
+the existing API URL and key requires only the regular update and read grants.
+Account ownership and token issuance do not grant business access.
 
 The server needs its voice credential keyring to create or replace credentials.
 Deployment configuration errors such as503

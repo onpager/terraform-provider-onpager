@@ -22,17 +22,26 @@ description: |-
 
 ## Messenger configuration
 
-| messenger | addressing_scope_id | configuration | Required saved secrets |
-| --- | --- | --- | --- |
-| `telegram` | Omit; authenticated getMe discovers it asynchronously | `mode` polling/webhook; `allowed_updates` | `token`; `webhook_secret` for webhook |
-| `pachca` | Bot account ID | `mode` polling/webhook | `token`; `webhook_secret` for webhook |
-| `slack` | Workspace/team ID | `{}`; Socket Mode is implicit | `token`, `app_token` |
-| `mattermost` | Team ID | `base_url` without trailing slash | `token`, `action_secret` |
-| `discord` | Guild ID | `{}`; Gateway is implicit | `token` |
+| Messenger | Addressing scope ID | Transport settings | Example `configuration.base_url` | Required saved secrets |
+| --- | --- | --- | --- | --- |
+| `telegram` | Omit for automatic discovery via getMe | Polling or webhook, `allowed_updates` | `http://mock:8080/telegram` | `token`, plus `webhook_secret` for webhook |
+| `pachca` | Bot account ID | Polling or webhook | `http://mock:8080/pachca/api/shared/v1` | `token`, plus `webhook_secret` for webhook |
+| `slack` | Workspace/team ID | Socket Mode | `http://mock:8080/slack/api` | `token`, `app_token` |
+| `mattermost` | Team ID | WebSocket | `http://mock:8080/mattermost` | `token`, `action_secret` |
+| `discord` | Guild ID | Gateway | `http://mock:8080/discord/api/v9` | `token` |
+
+The Bot service must be able to reach the configured address. Telegram appends
+`/bot<TOKEN>/<method>` and Mattermost appends `/api/v4/...`. Slack, Discord and
+Pachca expect the full REST API prefix. Slack and Discord mocks must return
+WebSocket URLs reachable from the Bot service. Incoming webhook callbacks use
+the deployment's callback origin.
 
 All messengers accept optional `proxy_url` as an encrypted secret. Configuration
-fields and secret keys for another messenger are rejected. Telegram requires an
-HTTPS `enrollment_url`; other messengers keep it optional. Enabled Mattermost and
+fields and secret keys for another messenger are rejected. Telegram and Pachca
+require an HTTPS `enrollment_url` on create and update, including disabled bots.
+For Pachca, supply the bot account ID in `addressing_scope_id` and a link users
+can open in `enrollment_url`. The outbound API uses `configuration.base_url`.
+Enabled Mattermost and
 Telegram/Pachca webhook configurations require a correctly configured deployment
 callback origin. Disabled configurations can be created and updated without it.
 The callback URL is computed from deployment settings and the bot UUID; an empty
@@ -43,7 +52,7 @@ Telegram/Pachca default to polling. Telegram defaults `allowed_updates` to
 `message`, `callback_query`, `my_chat_member`; an explicit empty set is rejected
 because the API would replace it with those defaults. Pacing defaults to ten
 requests per 1000 milliseconds and zero search requests. Explicit empty transport
-mode and noncanonical public URLs are rejected before API writes.
+mode is rejected before API writes.
 
 ## Import
 
@@ -75,10 +84,9 @@ contact enrollment. Generic delivery-channel writes cannot manage bot channels.
 Messenger, addressing scope and the authenticated bot principal are immutable.
 Changing a configured messenger/scope replaces the bot. Telegram's initially
 empty computed scope becomes its account ID after getMe succeeds. Token rotation
-must authenticate the same principal; a different account requires a new bot.
-Mattermost endpoint changes require credential authority and can subsequently
-fail runtime identity verification. One nonretired bot UUID owns an external
-account; Slack also permits only one active workspace bot per Slack app.
+and API URL changes must authenticate the same bot principal. A different
+account requires a new bot. One nonretired bot UUID owns an external account.
+Slack also permits only one active workspace bot per Slack app.
 
 Writes are unversioned: there is no revision, ETag or `If-Match`. PUT replaces all
 public configuration and saves named secret changes atomically. Every committed
@@ -98,7 +106,7 @@ Saving configuration does not call a messenger. Enabling asynchronously starts
 the bot service's identity verification, probing and transport. Desired `enabled`
 is separate from observed `runtime.state`; apply does not wait for `running`.
 Fresh disabled creation starts no messenger runtime but still requires complete
-valid settings, required secrets and deployment keyring/callback prerequisites.
+valid settings, required secrets and the deployment credential keyring.
 
 ## Credentials and Terraform state
 
@@ -110,8 +118,7 @@ be deleted. Telegram/Pachca polling may retain a webhook secret for later reuse.
 
 Reads expose `secret_keys`, never values, ciphertext or fingerprints. Known
 configured values remain sensitive Terraform state while their key is present.
-Unchanged replacements are omitted on public-settings updates, so those updates
-do not unnecessarily require credential authority. If an optional key disappears,
+Updates omit unchanged credential replacements. If an optional key disappears,
 its known value is cleared and a configured replacement can restore it. An
 external replacement under the same key cannot be detected. Protect state and
 saved plans; sensitive marking does not encrypt their stored values.
@@ -121,8 +128,8 @@ saved plans; sensitive marking does not encrypt their stored values.
 Native service accounts and personal access tokens use explicit tenant grants:
 `bots.create`, `bots.read`, `bots.update`, `bots.delete`. Create additionally
 requires `bot_credentials.replace`, as do secret replacement/deletion and changes
-to the Mattermost endpoint. `enabled = false` requires `bots.update`; there is no
-separate disable action. Team IDs are managed through the same bot write.
+to any bot API URL, including clearing an override. Setting `enabled = false`
+requires `bots.update`. Team IDs are managed through the same bot write.
 
 Configuration Provisioner includes bot CRUD but excludes credential replacement;
 assign an explicit native custom role when credential management is required.

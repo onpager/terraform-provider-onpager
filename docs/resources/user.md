@@ -113,6 +113,13 @@ Users are created active. `active = false` creates the identity and then invokes
 deactivation; it is not an atomic inactive create. A failed later operation
 retains the created UUID and committed partial changes in state.
 
+Control applies eligible sections of the enabled tenant notification template
+in the user creation transaction. When managing the template and users in one
+apply, add a dependency on the template to the user resource. The
+[user notification defaults example](user_notification_defaults.md#example-usage)
+shows the resource order. Individual grants can make additional sections
+available before the user's first sign-in.
+
 Destroy deactivates the user, revokes sessions/PATs and completes current incident
 responsibilities. The UUID, history, role assignments, memberships and reserved
 login/email remain. Already inactive users remain inactive. Reactivation does

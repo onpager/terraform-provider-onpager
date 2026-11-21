@@ -25,7 +25,8 @@ resource "onpager_bot" "example" {
   enabled        = false
 
   configuration = {
-    mode = "polling"
+    mode     = "polling"
+    base_url = "http://mock:8080/telegram"
   }
 
   secrets = {
@@ -46,7 +47,7 @@ resource "onpager_bot" "example" {
 
 ### Required
 
-- `configuration` (Attributes) Typed public provider settings. Use an empty object for Slack/Discord. Irrelevant messenger settings are rejected. (see [below for nested schema](#nestedatt--configuration))
+- `configuration` (Attributes) Public API and transport settings for this messenger. Slack and Discord accept an empty object for their defaults. (see [below for nested schema](#nestedatt--configuration))
 - `display_name` (String) Nonempty label of at most 200 UTF-8 bytes, without control characters or surrounding whitespace. Names may repeat.
 - `messenger` (String) Immutable messenger: `telegram`, `pachca`, `slack`, `mattermost` or `discord`. Changing it replaces the bot.
 
@@ -54,7 +55,7 @@ resource "onpager_bot" "example" {
 
 - `addressing_scope_id` (String) Immutable provider addressing ID of at most 512 UTF-8 bytes without controls or surrounding whitespace. Omit for Telegram: authenticated getMe discovers it asynchronously and it can initially be empty. Required for Pachca bot account, Slack workspace, Mattermost team and Discord guild. Changing a configured ID replaces the bot.
 - `enabled` (Boolean) Desired enabled state; defaults to `true`. Saving an enabled bot asynchronously starts its runtime. Disabled create still requires complete valid configuration and secrets, but starts no messenger runtime and needs no callback origin. Refresh/import preserve disabled state.
-- `enrollment_url` (String) HTTPS bot link without credentials, at most 4096 UTF-8 bytes and without surrounding whitespace. Required for Telegram; optional for other messengers. No provider-domain restriction. Omission/null clears it.
+- `enrollment_url` (String) HTTPS link users can open to enroll with this bot, at most 4096 UTF-8 bytes, without credentials or surrounding whitespace. Telegram and Pachca require a link on create and update, including disabled bots. For other messengers, omission or null clears the link. Any HTTPS domain is supported.
 - `pacing` (Attributes) Application pacing. Defaults to 10 requests per 1000 ms with no search. Search requests cannot exceed floor(requests/10). (see [below for nested schema](#nestedatt--pacing))
 - `public_handle` (String) Optional public handle, at most 200 UTF-8 bytes without control characters. Omission/null means an empty handle.
 - `secrets` (Attributes Map, Sensitive) Write-only named secret actions. Keys: token (all); app_token (Slack); action_secret (Mattermost); webhook_secret (Telegram/Pachca); optional proxy_url (all). Create requires replacing all required secrets even when disabled. Omitted keys keep saved values; removing the map does not delete remote secrets. Known values persist in Terraform state; imports cannot recover them and external secret replacements cannot be detected. Unchanged replacements are omitted on metadata updates. (see [below for nested schema](#nestedatt--secrets))
@@ -75,7 +76,7 @@ resource "onpager_bot" "example" {
 Optional:
 
 - `allowed_updates` (Set of String) Telegram update names matching ^[a-z][a-z0-9_]{0,63}$, at most 32. Omission/null uses `message`, `callback_query`, `my_chat_member`. An explicit empty set is rejected because the API replaces it with defaults. Other messengers use an empty set.
-- `base_url` (String) Mattermost HTTP(S) endpoint without credentials, query or fragment. Required only for Mattermost. Use canonical form without trailing slashes. Endpoint changes additionally require `bot_credentials.replace`.
+- `base_url` (String) Outbound HTTP(S) API base for this bot, up to 16384 bytes, without credentials, query or fragment. Supply the server URL for Telegram or Mattermost, or the full REST prefix for Slack, Discord or Pachca. Required for Mattermost. For other messengers, omission, null or an empty string selects the standard API. Changing or clearing the address updates the bot in place and requires `bot_credentials.replace`.
 - `mode` (String) Telegram/Pachca transport: `polling` (default) or `webhook`; empty for other messengers. Webhook mode requires a saved webhook_secret. A correctly configured deployment callback origin is required when enabling webhook mode; disabled settings can be saved without it.
 
 
@@ -113,17 +114,26 @@ Read-Only:
 
 ## Messenger configuration
 
-| messenger | addressing_scope_id | configuration | Required saved secrets |
-| --- | --- | --- | --- |
-| `telegram` | Omit; authenticated getMe discovers it asynchronously | `mode` polling/webhook; `allowed_updates` | `token`; `webhook_secret` for webhook |
-| `pachca` | Bot account ID | `mode` polling/webhook | `token`; `webhook_secret` for webhook |
-| `slack` | Workspace/team ID | `{}`; Socket Mode is implicit | `token`, `app_token` |
-| `mattermost` | Team ID | `base_url` without trailing slash | `token`, `action_secret` |
-| `discord` | Guild ID | `{}`; Gateway is implicit | `token` |
+| Messenger | Addressing scope ID | Transport settings | Example `configuration.base_url` | Required saved secrets |
+| --- | --- | --- | --- | --- |
+| `telegram` | Omit for automatic discovery via getMe | Polling or webhook, `allowed_updates` | `http://mock:8080/telegram` | `token`, plus `webhook_secret` for webhook |
+| `pachca` | Bot account ID | Polling or webhook | `http://mock:8080/pachca/api/shared/v1` | `token`, plus `webhook_secret` for webhook |
+| `slack` | Workspace/team ID | Socket Mode | `http://mock:8080/slack/api` | `token`, `app_token` |
+| `mattermost` | Team ID | WebSocket | `http://mock:8080/mattermost` | `token`, `action_secret` |
+| `discord` | Guild ID | Gateway | `http://mock:8080/discord/api/v9` | `token` |
+
+The Bot service must be able to reach the configured address. Telegram appends
+`/bot<TOKEN>/<method>` and Mattermost appends `/api/v4/...`. Slack, Discord and
+Pachca expect the full REST API prefix. Slack and Discord mocks must return
+WebSocket URLs reachable from the Bot service. Incoming webhook callbacks use
+the deployment's callback origin.
 
 All messengers accept optional `proxy_url` as an encrypted secret. Configuration
-fields and secret keys for another messenger are rejected. Telegram requires an
-HTTPS `enrollment_url`; other messengers keep it optional. Enabled Mattermost and
+fields and secret keys for another messenger are rejected. Telegram and Pachca
+require an HTTPS `enrollment_url` on create and update, including disabled bots.
+For Pachca, supply the bot account ID in `addressing_scope_id` and a link users
+can open in `enrollment_url`. The outbound API uses `configuration.base_url`.
+Enabled Mattermost and
 Telegram/Pachca webhook configurations require a correctly configured deployment
 callback origin. Disabled configurations can be created and updated without it.
 The callback URL is computed from deployment settings and the bot UUID; an empty
@@ -134,7 +144,7 @@ Telegram/Pachca default to polling. Telegram defaults `allowed_updates` to
 `message`, `callback_query`, `my_chat_member`; an explicit empty set is rejected
 because the API would replace it with those defaults. Pacing defaults to ten
 requests per 1000 milliseconds and zero search requests. Explicit empty transport
-mode and noncanonical public URLs are rejected before API writes.
+mode is rejected before API writes.
 
 ## Import
 
@@ -168,10 +178,9 @@ contact enrollment. Generic delivery-channel writes cannot manage bot channels.
 Messenger, addressing scope and the authenticated bot principal are immutable.
 Changing a configured messenger/scope replaces the bot. Telegram's initially
 empty computed scope becomes its account ID after getMe succeeds. Token rotation
-must authenticate the same principal; a different account requires a new bot.
-Mattermost endpoint changes require credential authority and can subsequently
-fail runtime identity verification. One nonretired bot UUID owns an external
-account; Slack also permits only one active workspace bot per Slack app.
+and API URL changes must authenticate the same bot principal. A different
+account requires a new bot. One nonretired bot UUID owns an external account.
+Slack also permits only one active workspace bot per Slack app.
 
 Writes are unversioned: there is no revision, ETag or `If-Match`. PUT replaces all
 public configuration and saves named secret changes atomically. Every committed
@@ -191,7 +200,7 @@ Saving configuration does not call a messenger. Enabling asynchronously starts
 the bot service's identity verification, probing and transport. Desired `enabled`
 is separate from observed `runtime.state`; apply does not wait for `running`.
 Fresh disabled creation starts no messenger runtime but still requires complete
-valid settings, required secrets and deployment keyring/callback prerequisites.
+valid settings, required secrets and the deployment credential keyring.
 
 ## Credentials and Terraform state
 
@@ -203,8 +212,7 @@ be deleted. Telegram/Pachca polling may retain a webhook secret for later reuse.
 
 Reads expose `secret_keys`, never values, ciphertext or fingerprints. Known
 configured values remain sensitive Terraform state while their key is present.
-Unchanged replacements are omitted on public-settings updates, so those updates
-do not unnecessarily require credential authority. If an optional key disappears,
+Updates omit unchanged credential replacements. If an optional key disappears,
 its known value is cleared and a configured replacement can restore it. An
 external replacement under the same key cannot be detected. Protect state and
 saved plans; sensitive marking does not encrypt their stored values.
@@ -214,8 +222,8 @@ saved plans; sensitive marking does not encrypt their stored values.
 Native service accounts and personal access tokens use explicit tenant grants:
 `bots.create`, `bots.read`, `bots.update`, `bots.delete`. Create additionally
 requires `bot_credentials.replace`, as do secret replacement/deletion and changes
-to the Mattermost endpoint. `enabled = false` requires `bots.update`; there is no
-separate disable action. Team IDs are managed through the same bot write.
+to any bot API URL, including clearing an override. Setting `enabled = false`
+requires `bots.update`. Team IDs are managed through the same bot write.
 
 Configuration Provisioner includes bot CRUD but excludes credential replacement;
 assign an explicit native custom role when credential management is required.

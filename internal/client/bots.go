@@ -213,7 +213,7 @@ func decodeBot(raw []byte, expected string, committed bool) (Bot, error) {
 	if (full.Messenger == "telegram" || full.Messenger == "pachca") && full.Configuration.Mode == "" || full.Messenger == "telegram" && len(full.Configuration.AllowedUpdates) == 0 {
 		return fail()
 	}
-	if ValidateBotInput(full.Messenger, BotInput{BotSettings: full.BotSettings}) != nil || !validBotScope(full.Messenger, full.AddressingScope.ID) || full.AddressingScope.Kind != botScopeKind(full.Messenger) || validateBotSecretKeys(full.Messenger, full.Configuration.Mode, full.SecretKeys) != nil {
+	if validateBotInput(full.Messenger, BotInput{BotSettings: full.BotSettings}, committed) != nil || !validBotScope(full.Messenger, full.AddressingScope.ID) || full.AddressingScope.Kind != botScopeKind(full.Messenger) || validateBotSecretKeys(full.Messenger, full.Configuration.Mode, full.SecretKeys) != nil {
 		return fail()
 	}
 	switch full.Runtime.State {

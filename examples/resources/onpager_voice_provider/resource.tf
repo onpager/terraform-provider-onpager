@@ -10,6 +10,7 @@ resource "onpager_voice_provider" "example" {
   enabled      = false
 
   configuration = {
+    base_url                 = "http://mock:8080/manager/cabapi_external/api/v1/phones"
     call_campaign_id         = "100001"
     verification_campaign_id = "100002"
     max_text_runes           = 500

@@ -38,6 +38,7 @@ func (*voiceProviderResource) Schema(_ context.Context, _ resource.SchemaRequest
 		"visibility":   schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("global"), MarkdownDescription: "Channel visibility: `global` (default) or `team`. Global visibility requires an empty team_ids set.", Validators: []validator.String{notificationTemplateStringRule{values: []string{"global", "team"}}}},
 		"team_ids":     schema.SetAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Whole explicit channel grant set of at most 1000 nonzero canonical lowercase team UUIDs. Omitted/null and empty both clear all grants. Must be empty for global visibility; team visibility permits an empty set. No team is discovered or created."},
 		"configuration": schema.SingleNestedAttribute{Required: true, MarkdownDescription: "Typed Zvonok configuration. Both campaigns must already exist; Terraform performs no campaign or account probe.", Attributes: map[string]schema.Attribute{
+			"base_url":                 schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(""), MarkdownDescription: "Full HTTP(S) base URL of the Zvonok V1 phones API for this connection, up to 16384 bytes, without credentials, query or fragment. Omission, null or an empty string selects `https://zvonok.com/manager/cabapi_external/api/v1/phones`. Changing or clearing the address updates the connection in place and requires `voice_provider_credentials.replace`."},
 			"call_campaign_id":         schema.StringAttribute{Required: true, MarkdownDescription: "Existing advanced free-text campaign identifier, 1–128 UTF-8 bytes without control characters or surrounding whitespace. No default."},
 			"verification_campaign_id": schema.StringAttribute{Required: true, MarkdownDescription: "Existing separate tellcode phone-verification campaign identifier, 1–128 UTF-8 bytes without control characters or surrounding whitespace. No default. Terraform never enrolls or verifies phones."},
 			"max_text_runes":           schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(500), MarkdownDescription: "Maximum rendered Unicode rune count, from 1 through 500 inclusive. Defaults to `500`; explicit zero is invalid."},
@@ -77,11 +78,16 @@ func (r *voiceProviderResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 	v, err := r.client.CreateVoiceProvider(ctx, m.Kind.ValueString(), in)
+	if v.Committed && validID(v.ID) {
+		m = voiceCommitted(m, v.ID, nil)
+		resp.Diagnostics.Append(resp.State.Set(ctx, m)...)
+	}
 	if err != nil {
-		if v.Committed && validID(v.ID) {
-			resp.Diagnostics.Append(resp.State.Set(ctx, voiceCommitted(m, v.ID, nil))...)
-		}
 		apiDiagnostic(&resp.Diagnostics, "create OnPager voice provider", err)
+		return
+	}
+	if !voiceIntentMatches(v, m, in) {
+		apiDiagnostic(&resp.Diagnostics, "read created OnPager voice provider", errors.New("OnPager returned configuration different from the committed voice-provider intent; run a fresh plan"))
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, voiceState(v, m))...)

@@ -17,31 +17,6 @@ import (
 	"github.com/onpager/terraform-provider-onpager/internal/client"
 )
 
-func botFiveConfiguration(prefix, suffix string) string {
-	var b strings.Builder
-	for _, m := range []string{"telegram", "pachca", "slack", "mattermost", "discord"} {
-		extra := ""
-		cfg := "{}"
-		secrets := `token = { action = "replace", value = "tfacc-passive-synthetic-token" }`
-		if m == "telegram" {
-			extra = `enrollment_url = "https://t.me/terraform_passive"`
-		} else {
-			extra = `addressing_scope_id = "terraform-passive-scope"`
-		}
-		if m == "slack" {
-			secrets += `
- app_token = { action = "replace", value = "tfacc-passive-synthetic-app" }`
-		}
-		if m == "mattermost" {
-			cfg = `{base_url = "https://terraform-passive.invalid"}`
-			secrets += `
- action_secret = { action = "replace", value = "tfacc-passive-synthetic-action" }`
-		}
-		fmt.Fprintf(&b, "\nresource \"onpager_bot\" %q {\n messenger = %q\n display_name = %q\n enabled = false\n %s\n configuration = %s\n pacing = {}\n secrets = {\n %s\n }\n}\n", m, m, prefix+"-"+m+suffix, extra, cfg, secrets)
-	}
-	return b.String()
-}
-
 // This uses the real Terraform protocol and an API fixture to expose unstable
 // nested defaults, secret persistence, import writes and computed Telegram scope.
 func TestBotTerraformFiveMessengersDefaultsImportDriftAndSecrets(t *testing.T) {
@@ -128,7 +103,20 @@ provider "onpager" {
  token = "fixture-only"
 }
 `, server.URL)
-	config := func(s string) string { return header + botFiveConfiguration("Passive", s) }
+	config := func(suffix string) string {
+		var b strings.Builder
+		b.WriteString(header)
+		for _, messenger := range []string{"telegram", "pachca", "slack", "mattermost", "discord"} {
+			baseURL := "http://mock:8080/" + messenger
+			if suffix == "-updated" {
+				baseURL = "http://MOCK:8080/v2/" + messenger + "/"
+			} else if suffix != "" && messenger != "mattermost" {
+				baseURL = ""
+			}
+			b.WriteString(botAcceptanceConfiguration("Passive", messenger, "", suffix, baseURL))
+		}
+		return b.String()
+	}
 	var telegramID string
 	capture := func(s *terraform.State) error {
 		telegramID = s.RootModule().Resources["onpager_bot.telegram"].Primary.ID
@@ -141,6 +129,11 @@ provider "onpager" {
 	steps = append(steps, resource.TestStep{Config: config("-updated"), Check: func(*terraform.State) error {
 		mu.Lock()
 		defer mu.Unlock()
+		for _, bot := range records {
+			if bot.Configuration.BaseURL != "http://mock:8080/v2/"+bot.Messenger {
+				return fmt.Errorf("unexpected API URL for %s: %q", bot.Messenger, bot.Configuration.BaseURL)
+			}
+		}
 		if replacements != 0 {
 			return fmt.Errorf("metadata update replayed %d retained replacements", replacements)
 		}
@@ -149,9 +142,9 @@ provider "onpager" {
 		mu.Lock()
 		defer mu.Unlock()
 		v := records[telegramID]
-		v.DisplayName = "External drift"
+		v.Configuration.BaseURL = "http://other-mock/telegram"
 		records[telegramID] = v
-	}, Config: config("-updated"), Check: resource.TestCheckResourceAttr("onpager_bot.telegram", "display_name", "Passive-telegram-updated")}, resource.TestStep{Config: config("-updated"), PlanOnly: true})
+	}, Config: config("-updated"), Check: resource.TestCheckResourceAttr("onpager_bot.telegram", "configuration.base_url", "http://MOCK:8080/v2/telegram/")}, resource.TestStep{Config: config("-updated"), PlanOnly: true})
 	// Runtime observations must never gate configuration or credential repairs.
 	// This server only stores JSON; enabled fixtures cannot contact a messenger.
 	activeConfig := func(state string) string {
@@ -185,7 +178,7 @@ provider "onpager" {
 						return err
 					}
 				}
-				return nil
+				return resource.TestCheckResourceAttr("onpager_bot.telegram", "configuration.base_url", "")(s)
 			},
 		})
 	}

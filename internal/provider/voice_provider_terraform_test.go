@@ -117,12 +117,20 @@ provider "onpager" {
 resource "terraform_data" "campaign" { input = "calls" }
 `, server.URL)
 	config := func(name, enabled, secret string) string {
+		baseSetting := ""
+		switch name {
+		case "Initial":
+			baseSetting = `base_url = "http://voice-mock:8080/v1/phones"`
+		case "Renamed":
+			baseSetting = `base_url = "http://VOICE-MOCK:8080/v2/phones/"`
+		}
 		return header + fmt.Sprintf(`
 resource "onpager_voice_provider" "test" {
  kind = "zvonok"
  display_name = %q
  %s
  configuration = {
+  %s
   call_campaign_id = terraform_data.campaign.output
   verification_campaign_id = "verify"
  }
@@ -131,7 +139,7 @@ resource "onpager_voice_provider" "test" {
 output "voice_provider_runtime_state" {
  value = onpager_voice_provider.test.runtime_status
 }
-`, name, enabled, secret)
+`, name, enabled, baseSetting, secret)
 	}
 	secret := `secrets = { public_key = { action = "replace", value = "fixture-key" } }`
 	rotated := `secrets = { public_key = { action = "replace", value = "rotated-fixture-key" } }`
@@ -150,6 +158,16 @@ output "voice_provider_runtime_state" {
 			return nil
 		}
 	}
+	checkEndpoint := func(want string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if got := records[id].Configuration.BaseURL; got != want {
+				return fmt.Errorf("stored voice API URL %q, want %q", got, want)
+			}
+			return nil
+		}
+	}
 	var beforeRuntimeWrites int
 	resource.UnitTest(t, resource.TestCase{ProtoV6ProviderFactories: routingAccFactories(), CheckDestroy: func(*terraform.State) error {
 		mu.Lock()
@@ -159,18 +177,18 @@ output "voice_provider_runtime_state" {
 		}
 		return nil
 	}, Steps: []resource.TestStep{
-		{Config: config("Initial", "enabled = false", secret), Check: resource.ComposeTestCheckFunc(capture, resource.TestCheckResourceAttr("onpager_voice_provider.test", "configuration.max_text_runes", "500"), resource.TestCheckResourceAttr("onpager_voice_provider.test", "enabled", "false"), checkReplacements(1))},
+		{Config: config("Initial", "enabled = false", secret), Check: resource.ComposeTestCheckFunc(capture, resource.TestCheckResourceAttr("onpager_voice_provider.test", "configuration.base_url", "http://voice-mock:8080/v1/phones"), resource.TestCheckResourceAttr("onpager_voice_provider.test", "configuration.max_text_runes", "500"), resource.TestCheckResourceAttr("onpager_voice_provider.test", "enabled", "false"), checkReplacements(1))},
 		{ResourceName: "onpager_voice_provider.test", ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"secrets"}},
 		{Config: config("Initial", "enabled = false", secret), PlanOnly: true},
-		{Config: config("Renamed", "enabled = false", secret), Check: checkReplacements(1)},
+		{Config: config("Renamed", "enabled = false", secret), Check: resource.ComposeTestCheckFunc(checkEndpoint("http://voice-mock:8080/v2/phones"), checkReplacements(1))},
 		{Config: config("Renamed", "enabled = false", rotated), Check: checkReplacements(2)},
 		{PreConfig: func() {
 			mu.Lock()
 			defer mu.Unlock()
 			v := records[id]
-			v.DisplayName = "External name"
+			v.Configuration.BaseURL = "http://other-mock/phones"
 			records[id] = v
-		}, Config: config("Renamed", "enabled = false", rotated), Check: resource.ComposeTestCheckFunc(resource.TestCheckResourceAttr("onpager_voice_provider.test", "display_name", "Renamed"), checkReplacements(2))},
+		}, Config: config("Renamed", "enabled = false", rotated), Check: resource.ComposeTestCheckFunc(resource.TestCheckResourceAttr("onpager_voice_provider.test", "configuration.base_url", "http://VOICE-MOCK:8080/v2/phones/"), checkEndpoint("http://voice-mock:8080/v2/phones"), checkReplacements(2))},
 		{Config: config("Renamed", "enabled = false", rotated), PlanOnly: true},
 		{PreConfig: func() { mu.Lock(); defer mu.Unlock(); delete(records, id) }, Config: config("Renamed", "enabled = false", rotated), Check: resource.ComposeTestCheckFunc(capture, checkReplacements(3))},
 		{Config: config("Renamed", "enabled = null", rotated), Check: resource.ComposeTestCheckFunc(resource.TestCheckResourceAttr("onpager_voice_provider.test", "enabled", "true"), checkReplacements(3))},
@@ -180,7 +198,7 @@ output "voice_provider_runtime_state" {
 			v := records[id]
 			v.Runtime = client.VoiceProviderRuntime{State: "starting"}
 			records[id] = v
-		}, Config: config("Repair while starting", "enabled = true", secret), Check: resource.ComposeTestCheckFunc(resource.TestCheckResourceAttr("onpager_voice_provider.test", "runtime_status", "starting"), checkReplacements(4))},
+		}, Config: config("Repair while starting", "enabled = true", secret), Check: resource.ComposeTestCheckFunc(resource.TestCheckResourceAttr("onpager_voice_provider.test", "runtime_status", "starting"), resource.TestCheckResourceAttr("onpager_voice_provider.test", "configuration.base_url", ""), checkEndpoint(""), checkReplacements(4))},
 		{PreConfig: func() {
 			mu.Lock()
 			defer mu.Unlock()

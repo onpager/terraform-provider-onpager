@@ -44,7 +44,7 @@ func TestAccBots(t *testing.T) {
 			})
 			name := "onpager_bot." + messenger
 			config := func(suffix string) string {
-				return routingAccHeader + botAcceptanceConfiguration(prefix, messenger, tc.mode, suffix)
+				return routingAccHeader + botAcceptanceConfiguration(prefix, messenger, tc.mode, suffix, "http://mock.invalid:8080/"+messenger+suffix)
 			}
 			capture := func(s *terraform.State) error {
 				// Capture the exact case-owned identity before a verification error
@@ -75,7 +75,8 @@ func TestAccBots(t *testing.T) {
 					{Config: config(""), PlanOnly: true},
 					{ResourceName: name, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"secrets"}},
 					{Config: config("-updated"), Check: resource.ComposeTestCheckFunc(capture,
-						resource.TestCheckResourceAttr(name, "display_name", prefix+"-"+messenger+"-updated"))},
+						resource.TestCheckResourceAttr(name, "display_name", prefix+"-"+messenger+"-updated"),
+						resource.TestCheckResourceAttr(name, "configuration.base_url", "http://mock.invalid:8080/"+messenger+"-updated"))},
 					{Config: config("-updated"), PlanOnly: true},
 					{PreConfig: func() {
 						v, e := c.GetBot(t.Context(), id)
@@ -84,11 +85,13 @@ func TestAccBots(t *testing.T) {
 						}
 						in := client.BotInput{BotSettings: v.BotSettings}
 						in.DisplayName = prefix + "-external-drift"
+						in.Configuration.BaseURL = "http://drift.invalid/" + messenger
 						if _, e = c.UpdateBot(t.Context(), id, messenger, in); e != nil {
 							t.Fatal(e)
 						}
 					}, Config: config("-updated"), Check: resource.ComposeTestCheckFunc(capture,
-						resource.TestCheckResourceAttr(name, "display_name", prefix+"-"+messenger+"-updated"))},
+						resource.TestCheckResourceAttr(name, "display_name", prefix+"-"+messenger+"-updated"),
+						resource.TestCheckResourceAttr(name, "configuration.base_url", "http://mock.invalid:8080/"+messenger+"-updated"))},
 					{Config: config("-updated"), PlanOnly: true},
 				},
 			})
@@ -96,23 +99,28 @@ func TestAccBots(t *testing.T) {
 	}
 }
 
-func botAcceptanceConfiguration(prefix, messenger, mode, suffix string) string {
+func botAcceptanceConfiguration(prefix, messenger, mode, suffix, baseURL string) string {
 	extra := `addressing_scope_id = "terraform-passive-scope"`
-	configuration := "{}"
+	settings := []string{}
+	if baseURL != "" {
+		settings = append(settings, fmt.Sprintf("base_url = %q", baseURL))
+	}
 	secrets := `token = { action = "replace", value = "tfacc-passive-synthetic-token" }`
 	switch messenger {
 	case "telegram":
 		extra = `enrollment_url = "https://t.me/terraform_passive"`
+	case "pachca":
+		extra += `
+ enrollment_url = "https://chat.example.invalid/chats/12345"`
 	case "slack":
 		secrets += `
  app_token = { action = "replace", value = "tfacc-passive-synthetic-app" }`
 	case "mattermost":
-		configuration = `{base_url = "https://terraform-passive.invalid"}`
 		secrets += `
  action_secret = { action = "replace", value = "tfacc-passive-synthetic-action" }`
 	}
 	if mode == "webhook" {
-		configuration = `{mode = "webhook"}`
+		settings = append(settings, `mode = "webhook"`)
 		secrets += `
  webhook_secret = { action = "replace", value = "tfacc-passive-synthetic-webhook" }`
 	}
@@ -122,13 +130,13 @@ resource "onpager_bot" %q {
  display_name = %q
  enabled = false
  %s
- configuration = %s
+ configuration = { %s }
  pacing = {}
  secrets = {
  %s
  }
 }
-`, messenger, messenger, prefix+"-"+messenger+suffix, extra, configuration, secrets)
+`, messenger, messenger, prefix+"-"+messenger+suffix, extra, strings.Join(settings, ", "), secrets)
 }
 
 // Rejected enable/default-enabled requests must not commit an enabled fixture.
@@ -155,6 +163,8 @@ func TestAccBotCallbackPreconditions(t *testing.T) {
 					in.AddressingScopeID = ""
 					in.EnrollmentURL = "https://t.me/terraform_passive"
 					in.Configuration.AllowedUpdates = []string{"callback_query", "message", "my_chat_member"}
+				} else {
+					in.EnrollmentURL = "https://chat.example.invalid/chats/12345"
 				}
 			}
 			created, err := c.CreateBot(t.Context(), in)

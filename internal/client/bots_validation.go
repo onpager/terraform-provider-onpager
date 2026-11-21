@@ -30,9 +30,9 @@ func botText(s string, max int) bool {
 func validBotScope(m, s string) bool {
 	return botText(s, 512) && strings.TrimSpace(s) == s && (s != "" || m == "telegram")
 }
-func botProviderURL(s string, credentials bool) bool {
+func validBotProxyURL(s string) bool {
 	u, e := url.Parse(s)
-	return e == nil && u.IsAbs() && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.Opaque == "" && (credentials || u.User == nil && u.String() == s) && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && botText(s, 16384)
+	return e == nil && u.IsAbs() && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.Opaque == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && botText(s, 16384)
 }
 func botLink(s string) bool {
 	if s == "" {
@@ -71,6 +71,10 @@ func validateBotSecretKeys(m, mode string, keys []string) error {
 // ValidateBotInput validates public replacements and named changes without
 // requiring knowledge of retained secret values. The API validates their result.
 func ValidateBotInput(m string, in BotInput) error {
+	return validateBotInput(m, in, true)
+}
+
+func validateBotInput(m string, in BotInput, writing bool) error {
 	if botScopeKind(m) == "" {
 		return errors.New("messenger must be telegram, pachca, slack, mattermost or discord")
 	}
@@ -80,8 +84,10 @@ func ValidateBotInput(m string, in BotInput) error {
 	if !botText(in.PublicHandle, 200) {
 		return errors.New("public_handle must be valid UTF-8, at most 200 bytes, without control characters")
 	}
-	if m == "telegram" && in.EnrollmentURL == "" {
-		return errors.New("enrollment_url is required for Telegram, including disabled bots")
+	// Control can return an existing Pachca bot with an empty link. The next
+	// save must supply it, even if the bot is disabled.
+	if (m == "telegram" || m == "pachca" && writing) && in.EnrollmentURL == "" {
+		return errors.New("enrollment_url is required for Telegram and Pachca, including disabled bots")
 	}
 	if !botLink(in.EnrollmentURL) {
 		return errors.New("enrollment_url must be an HTTPS URL without credentials, control characters or surrounding whitespace, at most 4096 UTF-8 bytes")
@@ -118,12 +124,11 @@ func ValidateBotInput(m string, in BotInput) error {
 	} else if cfg.Mode != "" {
 		return errors.New("configuration.mode must be omitted or empty for Slack, Mattermost and Discord")
 	}
-	if m == "mattermost" {
-		if !botProviderURL(cfg.BaseURL, false) || strings.HasSuffix(cfg.BaseURL, "/") {
-			return errors.New("configuration.base_url must be a canonical HTTP(S) URL without credentials, query, fragment or trailing slash for Mattermost")
-		}
-	} else if cfg.BaseURL != "" {
-		return errors.New("configuration.base_url must be omitted or empty except for Mattermost")
+	if _, err := NormalizeProviderBaseURL(cfg.BaseURL); err != nil {
+		return err
+	}
+	if m == "mattermost" && cfg.BaseURL == "" {
+		return errors.New("configuration.base_url is required for Mattermost")
 	}
 	if m != "telegram" && len(cfg.AllowedUpdates) > 0 {
 		return errors.New("configuration.allowed_updates must be omitted or empty except for Telegram")
@@ -155,7 +160,7 @@ func ValidateBotInput(m string, in BotInput) error {
 			if change.Value == "" || strings.TrimSpace(change.Value) == "" || !botText(change.Value, 16384) {
 				return errors.New(field + ".value must be nonempty valid UTF-8, at most 16384 bytes, without control characters or whitespace-only text when action is replace")
 			}
-			if key == "proxy_url" && !botProviderURL(change.Value, true) {
+			if key == "proxy_url" && !validBotProxyURL(change.Value) {
 				return errors.New(field + ".value must be an HTTP(S) proxy URL without query or fragment")
 			}
 		default:

@@ -128,7 +128,7 @@ func TestBotValidationAllMessengersAndSecretActions(t *testing.T) {
 		t.Run(m, func(t *testing.T) {
 			in := botInput()
 			scope := "scope"
-			in.Configuration = client.BotConfiguration{}
+			in.Configuration = client.BotConfiguration{BaseURL: "http://MOCK:8080/messenger/api/"}
 			if m == "telegram" || m == "pachca" {
 				in.Configuration.Mode = "polling"
 			}
@@ -139,11 +139,15 @@ func TestBotValidationAllMessengersAndSecretActions(t *testing.T) {
 				in.Secrets["app_token"] = client.BotSecretChange{Action: "replace", Value: "synthetic-app"}
 			}
 			if m == "mattermost" {
-				in.Configuration.BaseURL = "https://chat.invalid"
 				in.Secrets["action_secret"] = client.BotSecretChange{Action: "replace", Value: "synthetic-action"}
 			}
 			if e := client.ValidateBotCreateInput(client.BotCreateInput{BotInput: in, Messenger: m, AddressingScopeID: scope}); e != nil {
 				t.Fatal(e)
+			}
+			in.Configuration.BaseURL = ""
+			err := client.ValidateBotInput(m, in)
+			if (err != nil) != (m == "mattermost") {
+				t.Fatalf("empty base URL for %s: %v", m, err)
 			}
 		})
 	}
@@ -152,7 +156,7 @@ func TestBotValidationAllMessengersAndSecretActions(t *testing.T) {
 		"required link":           func(v *client.BotCreateInput) { v.EnrollmentURL = "" },
 		"whitespace label":        func(v *client.BotCreateInput) { v.DisplayName = " Passive" },
 		"byte limit":              func(v *client.BotCreateInput) { v.DisplayName = strings.Repeat("é", 101) },
-		"foreign configuration":   func(v *client.BotCreateInput) { v.Configuration.BaseURL = "https://foreign.invalid" },
+		"URL with userinfo":       func(v *client.BotCreateInput) { v.Configuration.BaseURL = "https://user@mock.invalid" },
 		"required token disabled": func(v *client.BotCreateInput) { v.Secrets = nil },
 		"secret action": func(v *client.BotCreateInput) {
 			v.Secrets["token"] = client.BotSecretChange{Action: "keep", Value: "secret"}
@@ -179,6 +183,35 @@ func TestBotValidationAllMessengersAndSecretActions(t *testing.T) {
 	}
 }
 
+func TestBotPachcaEnrollmentURLRequiredOnWrites(t *testing.T) {
+	in := botInput()
+	in.Configuration.AllowedUpdates = nil
+	in.EnrollmentURL = ""
+	saved := client.Bot{
+		ID: teamID, Messenger: "pachca", BotSettings: in.BotSettings,
+		AddressingScope: client.BotScope{Kind: "bot_account", ID: "fixture-account"},
+		SecretKeys:      []string{"token"}, Runtime: client.BotRuntime{State: "disabled"},
+	}
+	c := fixtureClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Error("a write without an enrollment URL reached the API")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(saved)
+	})
+	if got, err := c.GetBot(t.Context(), teamID); err != nil || got.ID != teamID || got.EnrollmentURL != "" {
+		t.Fatalf("read saved bot without a link: %v", err)
+	}
+	_, createErr := c.CreateBot(t.Context(), client.BotCreateInput{BotInput: in, Messenger: "pachca", AddressingScopeID: saved.AddressingScope.ID})
+	_, updateErr := c.UpdateBot(t.Context(), teamID, "pachca", in)
+	for _, err := range []error{createErr, updateErr} {
+		if err == nil || !strings.Contains(err.Error(), "enrollment_url") {
+			t.Errorf("expected an enrollment_url diagnostic, got %v", err)
+		}
+	}
+}
+
 func TestBotValidationIdentifiesInvalidFieldWithoutValues(t *testing.T) {
 	for _, tc := range []struct {
 		name, field string
@@ -195,7 +228,7 @@ func TestBotValidationIdentifiesInvalidFieldWithoutValues(t *testing.T) {
 		{"window", "pacing.window_ms", func(v *client.BotInput) { v.Pacing.WindowMS = 0 }},
 		{"search count", "pacing.search_requests", func(v *client.BotInput) { v.Pacing.SearchRequests = 2 }},
 		{"transport", "configuration.mode", func(v *client.BotInput) { v.Configuration.Mode = "invalid-mode-marker" }},
-		{"foreign URL", "configuration.base_url", func(v *client.BotInput) { v.Configuration.BaseURL = "https://private-host-marker" }},
+		{"URL with query", "configuration.base_url", func(v *client.BotInput) { v.Configuration.BaseURL = "https://mock.invalid/?private-host-marker" }},
 		{"update name", "configuration.allowed_updates", func(v *client.BotInput) { v.Configuration.AllowedUpdates = []string{"invalid-update-marker"} }},
 		{"unknown secret", "secrets", func(v *client.BotInput) { v.Secrets["private-key-marker"] = client.BotSecretChange{Action: "delete"} }},
 		{"secret action", "secrets.token.action", func(v *client.BotInput) { v.Secrets["token"] = client.BotSecretChange{Action: "invalid-action-marker"} }},

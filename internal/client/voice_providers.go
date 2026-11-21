@@ -15,6 +15,7 @@ import (
 )
 
 type VoiceProviderConfiguration struct {
+	BaseURL                string `json:"base_url,omitempty"`
 	CallCampaignID         string `json:"call_campaign_id"`
 	VerificationCampaignID string `json:"verification_campaign_id"`
 	MaxTextRunes           int64  `json:"max_text_runes"`
@@ -86,6 +87,9 @@ func validateVoiceProvider(v VoiceProvider, raw []byte) error {
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &fields)
 	if !outgoingWebhookCompleteObject(fields["configuration"], "call_campaign_id", "verification_campaign_id", "max_text_runes") || !outgoingWebhookCompleteObject(fields["runtime"], "state") {
+		return invalid()
+	}
+	if _, err := NormalizeProviderBaseURL(v.Configuration.BaseURL); err != nil {
 		return invalid()
 	}
 	if len(v.SecretKeys) != 1 || v.SecretKeys[0] != "public_key" {

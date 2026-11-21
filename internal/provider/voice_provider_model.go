@@ -12,7 +12,7 @@ import (
 	"github.com/onpager/terraform-provider-onpager/internal/client"
 )
 
-var voiceConfigurationTypes = map[string]attr.Type{"call_campaign_id": types.StringType, "verification_campaign_id": types.StringType, "max_text_runes": types.Int64Type}
+var voiceConfigurationTypes = map[string]attr.Type{"base_url": types.StringType, "call_campaign_id": types.StringType, "verification_campaign_id": types.StringType, "max_text_runes": types.Int64Type}
 var voiceSecretTypes = map[string]attr.Type{"action": types.StringType, "value": types.StringType}
 var voiceSecretType = types.ObjectType{AttrTypes: voiceSecretTypes}
 
@@ -73,6 +73,9 @@ func voiceDefaults(m voiceProviderModel) voiceProviderModel {
 	}
 	if !m.Configuration.IsNull() && !m.Configuration.IsUnknown() {
 		a := m.Configuration.Attributes()
+		if a["base_url"].IsNull() {
+			a["base_url"] = types.StringValue("")
+		}
 		if a["max_text_runes"].IsNull() {
 			a["max_text_runes"] = types.Int64Value(500)
 		}
@@ -123,7 +126,12 @@ func voiceInput(m voiceProviderModel, apply bool) (client.VoiceProviderInput, di
 		if !limit.IsUnknown() && (limit.IsNull() || limit.ValueInt64() < 1 || limit.ValueInt64() > 500) {
 			invalid()
 		}
-		in.Configuration = client.VoiceProviderConfiguration{CallCampaignID: call.ValueString(), VerificationCampaignID: verify.ValueString(), MaxTextRunes: limit.ValueInt64()}
+		base, _ := a["base_url"].(types.String)
+		baseURL, err := client.NormalizeProviderBaseURL(base.ValueString())
+		if err != nil {
+			d.AddError("Invalid voice-provider API URL", err.Error())
+		}
+		in.Configuration = client.VoiceProviderConfiguration{BaseURL: baseURL, CallCampaignID: call.ValueString(), VerificationCampaignID: verify.ValueString(), MaxTextRunes: limit.ValueInt64()}
 	}
 	if !m.TeamIDs.IsUnknown() {
 		if len(m.TeamIDs.Elements()) > 1000 {
@@ -186,7 +194,7 @@ func voiceState(v client.VoiceProvider, m voiceProviderModel) voiceProviderModel
 	m.DisplayName = types.StringValue(v.DisplayName)
 	m.Enabled = types.BoolValue(v.Enabled)
 	m.Visibility = types.StringValue(v.Visibility)
-	m.Configuration = types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"call_campaign_id": types.StringValue(v.Configuration.CallCampaignID), "verification_campaign_id": types.StringValue(v.Configuration.VerificationCampaignID), "max_text_runes": types.Int64Value(v.Configuration.MaxTextRunes)})
+	m.Configuration = types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"base_url": providerBaseURLState(m.Configuration, v.Configuration.BaseURL), "call_campaign_id": types.StringValue(v.Configuration.CallCampaignID), "verification_campaign_id": types.StringValue(v.Configuration.VerificationCampaignID), "max_text_runes": types.Int64Value(v.Configuration.MaxTextRunes)})
 	if len(v.TeamIDs) > 0 || !m.TeamIDs.IsNull() && !m.TeamIDs.IsUnknown() {
 		teams := make([]attr.Value, 0, len(v.TeamIDs))
 		for _, id := range v.TeamIDs {

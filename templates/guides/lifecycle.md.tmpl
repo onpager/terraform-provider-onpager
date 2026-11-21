@@ -24,6 +24,7 @@ outside Terraform remain untouched by parent settings updates.
 | Service accounts | Deactivate and revoke all keys; retain identity and role assignments |
 | Local users | Deactivate, revoke sessions/PATs and complete incident responsibilities; retain identity, history and reserved login/email |
 | Role assignments | Revoke only the explicit binding; retain audit history |
+| User notification defaults | Disable and clear the tenant template. Existing personal contacts and policies are preserved. |
 | Team role defaults | Clear both tenant-wide member/lead role sets with the saved policy revision |
 | Tenant routing settings | Clear the default route; retain the target and leave unmatched alerts unassigned |
 | Team responder policies | Retire only the exact importance slot; preserve history and existing calls |
@@ -149,9 +150,10 @@ Use each resource's documented null/empty behavior when clearing settings.
 
 ## Current limitations
 
-- Personal contact enrollment, verification and test delivery remain separate
-  user actions. Shared bot, voice and outgoing-webhook resources configure
-  connections; they do not register user contacts or discover destinations.
+- Shared bot, voice and outgoing-webhook resources configure connections.
+  Personal enrollment and test delivery are separate actions. An authorized
+  administrator can confirm a specific user's known bot recipient through
+  the Control bot-contact API.
 - Token rotation, target discovery and immediate polling are not implicit
   resource operations. Six data sources support explicit identity lookup; the
   permissions data source reads the native metadata catalog.

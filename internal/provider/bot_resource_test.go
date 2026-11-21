@@ -226,9 +226,9 @@ func TestBotConfigurationRejectsProviderMismatchAndNormalizingEmptyDefaults(t *t
 			a["allowed_updates"] = types.SetValueMust(types.StringType, []attr.Value{})
 			v["configuration"] = types.ObjectValueMust(botCfgTypes, a)
 		},
-		"foreign base URL": func(v map[string]attr.Value) {
+		"invalid base URL": func(v map[string]attr.Value) {
 			a := v["configuration"].(types.Object).Attributes()
-			a["base_url"] = types.StringValue("https://chat.invalid")
+			a["base_url"] = types.StringValue("http://mock.invalid/api?")
 			v["configuration"] = types.ObjectValueMust(botCfgTypes, a)
 		},
 		"long public handle": func(v map[string]attr.Value) { v["public_handle"] = types.StringValue(strings.Repeat("x", 201)) },

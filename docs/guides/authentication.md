@@ -104,11 +104,12 @@ the applicable team or tenant scope. Public `lookups.read` does not authorize
 private user login/email selectors. Dataset content requires the separate
 `enrichment_dataset_rows.read` grant.
 
-Bot creation and credential replacement require `bot_credentials.replace` in
+Bot creation, credential replacement and API URL changes require `bot_credentials.replace` in
 addition to `bots.create` or `bots.update`. Voice connections use the corresponding
 `voice_provider_credentials.replace` and `voice_providers.*` actions. The built-in
 configuration role does not implicitly grant credential replacement; assign those
-actions explicitly when automation manages connection secrets.
+actions explicitly when automation manages credentials or changes or clears a
+connection’s API URL.
 
 Role assignment updates require `role_assignments.delete` in the stored source
 scope and `role_assignments.create` in the desired destination scope. No separate

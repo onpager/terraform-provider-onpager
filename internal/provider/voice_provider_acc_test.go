@@ -25,10 +25,11 @@ func TestAccVoiceProvider(t *testing.T) {
 		}
 	})
 	config := func(updated bool) string {
-		name, campaign := prefix, "tfacc-passive-calls"
+		name, campaign, baseURL := prefix, "tfacc-passive-calls", "http://voice-mock.invalid/v1/phones"
 		if updated {
 			name += "-updated"
 			campaign = "tfacc-passive-calls-updated"
+			baseURL = ""
 		}
 		return routingAccHeader + fmt.Sprintf(`
 resource "onpager_voice_provider" "test" {
@@ -36,12 +37,13 @@ resource "onpager_voice_provider" "test" {
  display_name = %q
  enabled = false
  configuration = {
+  base_url = %q
   call_campaign_id = %q
   verification_campaign_id = "tfacc-passive-verification"
  }
  secrets = { public_key = { action = "replace", value = "tfacc-synthetic-public-key" } }
 }
-`, name, campaign)
+`, name, baseURL, campaign)
 	}
 	capture := func(s *terraform.State) error {
 		id = s.RootModule().Resources["onpager_voice_provider.test"].Primary.ID
@@ -69,6 +71,7 @@ resource "onpager_voice_provider" "test" {
 			if err != nil {
 				t.Fatal(err)
 			}
+			v.Configuration.BaseURL = "http://drift.invalid/v1/phones"
 			_, err = c.UpdateVoiceProvider(t.Context(), id, client.VoiceProviderInput{DisplayName: prefix + "-drift", Enabled: false, Visibility: v.Visibility, Configuration: v.Configuration, TeamIDs: v.TeamIDs})
 			if err != nil {
 				t.Fatal(err)

@@ -11,6 +11,9 @@ The OnPager provider manages configuration through the Control API. It supports
 teams, services, memberships, integrations, routing, escalation, delivery catalog
 bindings, schedules, work calendars, local users, identity and access configuration,
 notification templates, outgoing webhooks, suppression and enrichment.
+[User notification defaults](resources/user_notification_defaults.md) configure
+the tenant template for personal contacts and notification policies. Control
+applies eligible sections when creating users and granting individual access.
 
 Tenant routing settings manage the default unmatched-alert recipient. Team
 responder policies publish exact-importance fanout or chain snapshots; responder

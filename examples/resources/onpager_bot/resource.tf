@@ -10,7 +10,8 @@ resource "onpager_bot" "example" {
   enabled        = false
 
   configuration = {
-    mode = "polling"
+    mode     = "polling"
+    base_url = "http://mock:8080/telegram"
   }
 
   secrets = {

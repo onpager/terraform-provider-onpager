@@ -19,13 +19,13 @@ import (
 	onpager "github.com/onpager/terraform-provider-onpager/internal/provider"
 )
 
-var voiceConfigurationTypes = map[string]attr.Type{"call_campaign_id": types.StringType, "verification_campaign_id": types.StringType, "max_text_runes": types.Int64Type}
+var voiceConfigurationTypes = map[string]attr.Type{"base_url": types.StringType, "call_campaign_id": types.StringType, "verification_campaign_id": types.StringType, "max_text_runes": types.Int64Type}
 var voiceSecretObject = types.ObjectType{AttrTypes: map[string]attr.Type{"action": types.StringType, "value": types.StringType}}
 
 func voiceValues() map[string]attr.Value {
 	return map[string]attr.Value{
 		"id": types.StringValue(fService), "kind": types.StringValue("zvonok"), "display_name": types.StringValue("Passive voice"), "enabled": types.BoolValue(false), "visibility": types.StringValue("global"),
-		"team_ids": types.SetNull(types.StringType), "configuration": types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"call_campaign_id": types.StringValue("calls"), "verification_campaign_id": types.StringValue("verify"), "max_text_runes": types.Int64Value(500)}),
+		"team_ids": types.SetNull(types.StringType), "configuration": types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"base_url": types.StringValue(""), "call_campaign_id": types.StringValue("calls"), "verification_campaign_id": types.StringValue("verify"), "max_text_runes": types.Int64Value(500)}),
 		"secrets":     types.MapValueMust(voiceSecretObject, map[string]attr.Value{"public_key": types.ObjectValueMust(voiceSecretObject.AttrTypes, map[string]attr.Value{"action": types.StringValue("replace"), "value": types.StringValue("private-voice-marker")})}),
 		"secret_keys": types.SetValueMust(types.StringType, []attr.Value{types.StringValue("public_key")}), "callback_url": types.StringValue("https://ingress.invalid/callback/private-callback-marker"), "runtime_status": types.StringValue("disabled"), "runtime_error_code": types.StringNull(), "runtime_observed_at": types.StringNull(),
 	}
@@ -95,6 +95,29 @@ func TestVoiceProviderResourceDirectLifecyclePreservesSecret(t *testing.T) {
 	}
 }
 
+func TestVoiceProviderResourceCreateRetainsRequestedBaseURLOnMismatch(t *testing.T) {
+	r := onpager.NewVoiceProviderResource()
+	s := configuredResource(t, r, func(w http.ResponseWriter, q *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		providerVoiceView(w, "Passive voice") // Receipt returned the vendor default.
+	})
+	const endpoint = "http://voice-mock:8080/v1/phones/"
+	v := voiceValues()
+	cfg := v["configuration"].(types.Object).Attributes()
+	cfg["base_url"] = types.StringValue(endpoint)
+	v["configuration"] = types.ObjectValueMust(voiceConfigurationTypes, cfg)
+	plan := valueState(t, s, v)
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(t.Context(), resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: plan.Raw}}, &resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("accepted create receipt with a different credential destination")
+	}
+	var saved types.String
+	if d := resp.State.GetAttribute(t.Context(), path.Root("configuration").AtName("base_url"), &saved); d.HasError() || saved.ValueString() != endpoint {
+		t.Fatal("committed create lost the requested API URL", d)
+	}
+}
+
 func TestVoiceProviderResourceCommittedUpdateSavesDesiredStateBeforeFailedRead(t *testing.T) {
 	for _, status := range []int{403, 404, 500, 200} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
@@ -127,7 +150,7 @@ func TestVoiceProviderResourceCommittedUpdateSavesDesiredStateBeforeFailedRead(t
 }
 
 func TestVoiceProviderResourceRejectsFollowupDifferentFromCommittedIntent(t *testing.T) {
-	for _, mode := range []string{"display_name", "call_campaign", "verification_campaign", "text_limit", "enabled", "visibility", "team_set", "kind", "empty_secrets"} {
+	for _, mode := range []string{"display_name", "base_url", "call_campaign", "verification_campaign", "text_limit", "enabled", "visibility", "team_set", "kind", "empty_secrets"} {
 		t.Run(mode, func(t *testing.T) {
 			r := onpager.NewVoiceProviderResource()
 			calls := 0
@@ -141,6 +164,8 @@ func TestVoiceProviderResourceRejectsFollowupDifferentFromCommittedIntent(t *tes
 				switch mode {
 				case "display_name":
 					v.DisplayName = "Foreign name"
+				case "base_url":
+					v.Configuration.BaseURL = "http://other-mock/api"
 				case "call_campaign":
 					v.Configuration.CallCampaignID = "foreign-calls"
 				case "verification_campaign":
@@ -164,7 +189,7 @@ func TestVoiceProviderResourceRejectsFollowupDifferentFromCommittedIntent(t *tes
 			state := valueState(t, s, voiceValues())
 			planned := voiceValues()
 			planned["display_name"], planned["enabled"], planned["visibility"] = types.StringValue("Committed name"), types.BoolValue(true), types.StringValue("team")
-			planned["configuration"] = types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"call_campaign_id": types.StringValue("committed-calls"), "verification_campaign_id": types.StringValue("committed-verify"), "max_text_runes": types.Int64Value(350)})
+			planned["configuration"] = types.ObjectValueMust(voiceConfigurationTypes, map[string]attr.Value{"base_url": types.StringValue(""), "call_campaign_id": types.StringValue("committed-calls"), "verification_campaign_id": types.StringValue("committed-verify"), "max_text_runes": types.Int64Value(350)})
 			planned["team_ids"] = types.SetValueMust(types.StringType, []attr.Value{types.StringValue(fTeam), types.StringValue(fOtherTeam)})
 			planned["secrets"] = types.MapValueMust(voiceSecretObject, map[string]attr.Value{"public_key": types.ObjectValueMust(voiceSecretObject.AttrTypes, map[string]attr.Value{"action": types.StringValue("replace"), "value": types.StringValue("committed-secret-marker")})})
 			p := valueState(t, s, planned)
@@ -407,7 +432,7 @@ func TestVoiceProviderResourceImportIsReadOnlyAndCannotRecoverSecrets(t *testing
 }
 
 func TestVoiceProviderResourceValidationDefaultsUnknownAndInvalidValues(t *testing.T) {
-	for _, mode := range []string{"defaults", "unknown", "zero", "campaign", "name", "visibility", "teams", "kind", "secret_key", "delete", "empty_secret", "missing_secret_value"} {
+	for _, mode := range []string{"defaults", "unknown", "zero", "base_url", "campaign", "name", "visibility", "teams", "kind", "secret_key", "delete", "empty_secret", "missing_secret_value"} {
 		t.Run(mode, func(t *testing.T) {
 			r := onpager.NewVoiceProviderResource()
 			s := configuredResource(t, r, func(http.ResponseWriter, *http.Request) { t.Error("validation made a request") })
@@ -424,6 +449,8 @@ func TestVoiceProviderResourceValidationDefaultsUnknownAndInvalidValues(t *testi
 				v["secrets"] = types.MapUnknown(voiceSecretObject)
 			case "zero":
 				cfg["max_text_runes"] = types.Int64Value(0)
+			case "base_url":
+				cfg["base_url"] = types.StringValue("https://private-voice-marker@mock")
 			case "campaign":
 				cfg["call_campaign_id"] = types.StringValue(" calls ")
 			case "name":
