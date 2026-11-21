@@ -75,7 +75,9 @@ terraform import onpager_team_alert_channel.example 11111111-1111-4111-8111-1111
 This resource owns one explicit catalog binding. The delivery catalog must
 already contain a compatible, authorized and enabled channel and target. Use
 explicit channel and target UUIDs; name lookup and target discovery are not
-supported. Unavailable bindings remain managed.
+supported. To create a shared chat destination in Terraform, reference the
+[delivery target](delivery_target.md) resource's `id` in `target_id`.
+Unavailable bindings remain managed.
 
 Changing the delivery channel or target updates the pair in place, preserving
 the binding UUID. This update requires both create and delete grants. Create and

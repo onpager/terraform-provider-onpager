@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 )
@@ -54,46 +53,11 @@ type LocalUserReceipt struct {
 
 func userPath(id string) string { return "/v1/users/" + url.PathEscape(id) }
 
-// userRequest retains successful HTTP mutation outcomes even if the receipt is
-// malformed. No user endpoint uses If-Match or an automatic mutation retry.
 func (c *Client) userRequest(ctx context.Context, method, route string, input any) ([]byte, bool, error) {
-	var body io.Reader
-	if input != nil {
-		data, err := json.Marshal(input)
-		if err != nil {
-			return nil, false, errors.New("could not encode OnPager user request")
-		}
-		body = bytes.NewReader(data)
-	}
-	res, err := c.do(ctx, method, route, body, nil)
+	data, status, err := c.unversionedJSONRequest(ctx, method, route, input)
+	committed := status >= 200 && status < 300 && method != http.MethodGet
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, false, ctx.Err()
-		}
-		return nil, false, errors.New("OnPager request failed; check endpoint, connectivity and TLS configuration")
-	}
-	defer res.Body.Close()
-	success := res.StatusCode >= 200 && res.StatusCode < 300
-	committed := success && method != http.MethodGet
-	data, err := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
-	if err != nil {
-		return nil, committed, errors.New("could not read OnPager response")
-	}
-	if len(data) > 4<<20 {
-		return nil, committed, errors.New("OnPager response exceeds the 4 MiB client limit")
-	}
-	if !success {
-		var envelope struct {
-			Error struct {
-				Code string `json:"code"`
-			} `json:"error"`
-		}
-		_ = json.Unmarshal(data, &envelope)
-		code := envelope.Error.Code
-		if !safeCode.MatchString(code) {
-			code = ""
-		}
-		return nil, false, &APIError{StatusCode: res.StatusCode, Code: code}
+		return nil, committed, err
 	}
 	wantStatus := http.StatusOK
 	if method == http.MethodPost {
@@ -102,7 +66,7 @@ func (c *Client) userRequest(ctx context.Context, method, route string, input an
 			wantStatus = http.StatusCreated
 		}
 	}
-	if res.StatusCode != wantStatus || wantStatus == http.StatusNoContent && len(bytes.TrimSpace(data)) != 0 {
+	if status != wantStatus || wantStatus == http.StatusNoContent && len(bytes.TrimSpace(data)) != 0 {
 		return data, committed, errors.New("OnPager returned an unexpected user response status or body")
 	}
 	return data, committed, nil

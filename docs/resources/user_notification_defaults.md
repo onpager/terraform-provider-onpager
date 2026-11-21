@@ -164,7 +164,7 @@ Terraform sends these references together in a single request, in the order
 given. OnPager validates channel availability and lookup capabilities at write
 time. A policy can reference a draft contact. For bot delivery before sign-in,
 an administrator with `user_bot_contacts.manage` can set a known `recipient_id`
-and `verified = true` through the administrative bot-contact API. A login or
+and `verified = true` with a [user bot contact](user_bot_contact.md). A login or
 email alone does not confirm a bot recipient.
 
 Disabling the template preserves its saved contacts and policies. A policy with

@@ -14,6 +14,9 @@ notification templates, outgoing webhooks, suppression and enrichment.
 [User notification defaults](resources/user_notification_defaults.md) configure
 the tenant template for personal contacts and notification policies. Control
 applies eligible sections when creating users and granting individual access.
+[Delivery targets](resources/delivery_target.md) supply destination UUIDs to
+team and service catalogs. [User bot contacts](resources/user_bot_contact.md)
+bind personal recipients to the methods referenced by notification policies.
 
 Tenant routing settings manage the default unmatched-alert recipient. Team
 responder policies publish exact-importance fanout or chain snapshots; responder

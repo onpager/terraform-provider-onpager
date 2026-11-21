@@ -20,6 +20,8 @@ outside Terraform remain untouched by parent settings updates.
 | Schedule settings | Disable and retain history |
 | Primary rotations and overrides | Retire the addressed plan with `mode=all`; retain immutable versions and historical references |
 | Channel catalog bindings and calendar entries | Delete only the managed binding/entry |
+| Delivery targets | Disable the target. Its canonical address stays reserved and its UUID can be imported for reactivation. |
+| User bot contacts | Delete the contact and release the recipient binding. Policy steps and historical records retain a null method reference. |
 | Integrations | Hide and revoke credentials, retaining alerts and historical links |
 | Service accounts | Deactivate and revoke all keys; retain identity and role assignments |
 | Local users | Deactivate, revoke sessions/PATs and complete incident responsibilities; retain identity, history and reserved login/email |
@@ -152,8 +154,8 @@ Use each resource's documented null/empty behavior when clearing settings.
 
 - Shared bot, voice and outgoing-webhook resources configure connections.
   Personal enrollment and test delivery are separate actions. An authorized
-  administrator can confirm a specific user's known bot recipient through
-  the Control bot-contact API.
+  administrator can confirm a specific user's known bot recipient with a
+  dedicated user bot contact resource.
 - Token rotation, target discovery and immediate polling are not implicit
   resource operations. Six data sources support explicit identity lookup; the
   permissions data source reads the native metadata catalog.
