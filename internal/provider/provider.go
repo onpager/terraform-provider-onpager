@@ -122,6 +122,7 @@ func (*OnPagerProvider) Resources(context.Context) []func() resource.Resource {
 		NewSilenceResource, NewInhibitionRuleResource,
 		NewEnrichmentDatasetResource, NewEnrichmentRulesResource,
 		NewBotResource, NewVoiceProviderResource, NewDeliveryTargetResource, NewUserBotContactResource,
+		NewUserPhoneContactResource, NewUserWebhookContactResource,
 		NewTeamRoleDefaultsResource,
 		NewUserNotificationDefaultsResource,
 		NewRoutingSettingsResource,

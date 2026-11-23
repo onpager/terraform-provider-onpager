@@ -20,6 +20,10 @@ description: |-
 
 {{ .SchemaMarkdown | trimspace }}
 
+Use a [user webhook contact](user_webhook_contact.md) to bind personal recipient
+values to a `notification` definition. For an `escalation` definition, reference
+its UUID in a `notify_webhook` step of an [escalation chain](escalation_chain.md).
+
 ## Import
 
 Import using `team_uuid/webhook_uuid`. Import reads the exact team-scoped URL,

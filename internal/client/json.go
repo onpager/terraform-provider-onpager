@@ -66,6 +66,10 @@ func (c *Client) unversionedJSONRequest(ctx context.Context, method, route strin
 // rawJSONRequest retains the HTTP status even if the response body cannot be
 // read. Each endpoint validates its own success statuses and receipt.
 func (c *Client) rawJSONRequest(ctx context.Context, method, route string, input any, tag string) ([]byte, int, error) {
+	return c.rawJSONRequestHeaders(ctx, method, route, input, tag, nil)
+}
+
+func (c *Client) rawJSONRequestHeaders(ctx context.Context, method, route string, input any, tag string, responseHeaders *http.Header) ([]byte, int, error) {
 	var body io.Reader
 	if input != nil {
 		data, err := json.Marshal(input)
@@ -86,6 +90,9 @@ func (c *Client) rawJSONRequest(ctx context.Context, method, route string, input
 		return nil, 0, errors.New("OnPager request failed; check endpoint, connectivity and TLS configuration")
 	}
 	defer res.Body.Close()
+	if responseHeaders != nil {
+		*responseHeaders = res.Header
+	}
 	success := res.StatusCode >= 200 && res.StatusCode < 300
 	const maxResponseBytes = 4 << 20
 	data, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))

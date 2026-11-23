@@ -147,6 +147,10 @@ Optional:
 
 - `value` (String, Sensitive) Sensitive UTF-8 credential, at most 65,536 bytes. Required and non-null for `replace`; explicit empty writes an empty credential. Null/empty for `keep` or `delete` sends no value. Never returned by GET; known configured values remain in state until deleted or externally removed.
 
+Use a [user webhook contact](user_webhook_contact.md) to bind personal recipient
+values to a `notification` definition. For an `escalation` definition, reference
+its UUID in a `notify_webhook` step of an [escalation chain](escalation_chain.md).
+
 ## Import
 
 Import using `webhook_uuid`. Import reads the exact tenant-scoped URL, including

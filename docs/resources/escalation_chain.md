@@ -94,8 +94,10 @@ terraform import onpager_escalation_chain.example 11111111-1111-4111-8111-111111
 ## Lifecycle
 
 Rules, schedules, outgoing webhooks and work calendars referenced by the chain
-are managed separately. The API validates ownership, availability and delegation
-constraints.
+are managed separately. A `notify_webhook` step uses the UUID of an enabled
+`escalation` webhook available to the owning team. A `notify_user` or
+`notify_oncall` step follows the recipient's personal notification policy,
+which can reference a [user webhook contact](user_webhook_contact.md).
 
 Updates replace the complete definition using the observed strong SHA-256 ETag.
 A stale ETag reports a conflict and requires a new plan; the provider does not

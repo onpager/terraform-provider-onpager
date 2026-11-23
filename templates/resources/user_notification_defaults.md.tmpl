@@ -70,6 +70,16 @@ Or use the CLI:
 {{ codefile "shell" .ImportFile }}
 {{- end }}
 
+## Completing template contacts
+
+Supply a template contact slot UUID as `template_contact_id` on a
+[user phone contact](user_phone_contact.md) or [user webhook contact](user_webhook_contact.md)
+to fill an employee's draft and preserve its personal policy references.
+For a webhook slot, the template uses the globally visible delivery channel UUID.
+Supply the channel UUID separately. Control 0.0.10 returns the definition UUID
+on the outgoing webhook resource and omits its delivery channel UUID. The
+personal resource uses the definition UUID directly.
+
 ## Writes and destroy
 
 Apply sends the complete template to `/v1/settings/user-notification-defaults`.
